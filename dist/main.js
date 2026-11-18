@@ -1,5 +1,5 @@
 import { chapters, telemetry, dossiers, liftProgress, ignitionDemand, subtitleCues } from './states.js';
-import { createAmbience } from './audio.js';
+import { createSoundtrack } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 const gsap = window.gsap,
@@ -7,8 +7,8 @@ const gsap = window.gsap,
 const small = matchMedia('(max-width: 760px), (max-height: 530px)');
 const jumpButtons = [...document.querySelectorAll('[data-chapter]')];
 const destinations = [...document.querySelectorAll('[data-go]')];
-const terms = Object.keys(dossiers),
-  ambience = createAmbience();
+const terms = Object.keys(dossiers);
+const soundtrack = createSoundtrack();
 const startTimes = chapters.map((_, i) => chapters.slice(0, i).reduce((n, c) => n + c.length, 0));
 const total = startTimes.at(-1) + chapters.at(-1).length;
 const clock = { seconds: 0 },
@@ -61,7 +61,6 @@ function onScene(id) {
   current = id;
   document.body.dataset.view = id;
   put('view-code', labels[id]);
-  ambience.select(id);
   if (mode === 'explore' && dossiers[id] && selected !== id) describeDestination(id);
 }
 function showImage(id) {
@@ -155,6 +154,7 @@ function drawReadings(seconds, target, state) {
 function paintFilm(force = false) {
   if (mode !== 'film' || !ready) return;
   const s = clamp(clock.seconds, 0, total);
+  syncSound(force);
   let i = 0;
   while (i < chapters.length - 1 && s >= startTimes[i + 1]) i++;
   const c = chapters[i],
@@ -199,6 +199,7 @@ function paintFilm(force = false) {
 }
 function playButton() {
   if (filmPrint && timeline.paused()) filmPrint.pause();
+  syncSound();
   const pause = !timeline.paused() && !done;
   put('film-label', pause ? '暂停' : '继续');
   $('film-toggle').setAttribute('aria-label', pause ? '暂停电影' : '继续电影');
@@ -295,6 +296,7 @@ function setMode(next) {
   closeInfo(false);
   dataTween?.kill();
   updateMarkers({});
+  if(next==='explore')syncSound(true);
 }
 function enterFilm(replay = false) {
   if (!ready) return;
@@ -517,18 +519,9 @@ $('end-explore').onclick = () => choose('earth');
 $('show-info').onclick = () => showInfo(selected);
 $('info-close').onclick = () => closeInfo();
 $('info-open').onclick = () => choose(inspected);
-$('sound').onclick = async () => {
-  try {
-    const on = await ambience.toggle(current),
-      text = on ? '关闭环境音' : '开启环境音';
-    $('sound').setAttribute('aria-pressed', String(on));
-    $('sound').setAttribute('aria-label', text);
-    $('sound').title = text;
-    $('sound-icon').setAttribute('href', on ? '#i-sound' : '#i-muted');
-  } catch {
-    put('announce', '当前浏览器无法播放环境音');
-  }
-};
+function syncSound(force=false) {
+  soundtrack.sync(mode,clock.seconds,ready && (mode==='explore' || (!done && !timeline.paused())),force);
+}
 if (!document.documentElement.requestFullscreen) $('fullscreen').hidden = true;
 $('fullscreen').onclick = async () => {
   try {
@@ -546,6 +539,7 @@ document.addEventListener('fullscreenchange', () => {
 window.addEventListener('keydown', (e) => {
   if (!ready || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
   if (e.key === 'Escape') {
+    if (soundtrack.close()) return;
     if (!$('info-panel').hidden) closeInfo();
     else if (done) choose('earth');
     else if (mode === 'film' && !player.inert) hideControls(true);
@@ -556,6 +550,7 @@ window.addEventListener('keydown', (e) => {
     (document.activeElement === $('replay') ? $('end-explore') : $('replay')).focus();
     return;
   }
+  if (e.target.closest('#music-panel')) return;
   if (e.key.toLowerCase() === 'e' && mode === 'film' && !done && !e.target.matches('input')) {
     choose('earth');
     $('mode-film').focus({ preventScroll: true });
@@ -579,6 +574,7 @@ document.addEventListener('visibilitychange', () => {
     timeline.play();
     pausedForTab = false;
   }
+  syncSound(true);
 });
 progress(8, '载入观测系统');
 try {

@@ -60,6 +60,7 @@
 
   <main id="console" class="relative isolate h-full w-full overflow-hidden">
     <div id="screening-frame">
+      <button id="score-unlock" class="score-unlock" aria-controls="music-panel" aria-expanded="false"><svg aria-hidden="true"><use href="#i-sound"/></svg><span>电影原声</span></button>
       <button id="reveal-player" class="reveal-player" aria-controls="film-player" aria-expanded="false" aria-label="显示电影播放控制">
         <svg aria-hidden="true"><use href="#i-play"/></svg><span>播放控制</span>
       </button>
@@ -101,7 +102,7 @@
       </nav>
       <div class="utilities flex items-center">
         <div class="clock"><small>任务时间 UTC</small><time id="mission-clock">2061.02.16  08:42:00</time></div>
-        <button class="icon-btn" id="sound" title="开启环境音" aria-label="开启环境音" aria-pressed="false"><svg><use id="sound-icon" href="#i-muted"/></svg></button>
+        <button class="icon-btn" id="sound" title="电影原声" aria-label="电影原声" aria-controls="music-panel" aria-expanded="false"><svg aria-hidden="true"><use id="sound-icon" href="#i-sound"/></svg><span id="sound-label">电影原声</span></button>
         <button class="icon-btn" id="fullscreen" title="进入全屏" aria-label="进入全屏"><svg><use href="#i-full"/></svg></button>
       </div>
     </header>
@@ -172,6 +173,19 @@
       </div>
     </section>
     <div class="sr-only" id="announce" role="status" aria-live="polite"></div>
+    <aside id="music-panel" aria-labelledby="music-title" hidden>
+      <div class="music-head"><div><h2 id="music-title">开启新征程</h2><p>阿鲲 ·《流浪地球》电影原声</p></div><button id="music-close" class="icon-btn" aria-label="收起原声播放器"><svg><use href="#i-close"/></svg></button></div>
+      <div id="music-service"></div>
+      <div class="music-links"><a href="https://music.163.com/song?id=1343461538" target="_blank" rel="noopener noreferrer">网易云单曲 ↗</a><a href="https://www.douyin.com/music/7579192127771985963" target="_blank" rel="noopener noreferrer">原视频剪辑版 ↗</a><button id="music-stop" type="button">关闭音乐</button></div>
+      <details id="music-local"><summary>用本机音源同步电影</summary>
+        <label>选择音频文件<input id="local-file" type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac"></label>
+        <div id="cue-editor" hidden>
+          <label>曲中高潮位置（秒）<input id="cue-time" type="number" inputmode="decimal" step="0.1" min="0"></label>
+          <button type="button" id="apply-cue">对齐片尾推进</button>
+        </div>
+        <p id="music-hint" role="status">本机文件仅在此浏览器播放。可将曲中高潮对齐电影 01:38 的地球推进。</p>
+      </details>
+    </aside>
   </main>
   <script src="./vendor/gsap.min.js"></script>
   <script type="module" src="./main.js"></script>
