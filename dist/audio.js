@@ -100,7 +100,7 @@ export function createSoundtrack() {
     if (!fileUrl || !Number.isFinite(music.duration)) return;
     service.replaceChildren();
     const input = byId('cue-time');
-    input.max = String(Math.max(0, music.duration-.01));
+    input.max = String(Math.max(0, Math.floor((music.duration-.01)*10)/10));
     cue = Math.min(climax, Number(input.max));
     input.value = String(Math.round(cue*10)/10);
     byId('cue-editor').hidden = false;
