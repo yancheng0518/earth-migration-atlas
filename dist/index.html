@@ -1,0 +1,179 @@
+<!doctype html>
+<!--
+  《流浪地球计划》交互式电影 · 单文件版阅读指南
+
+  运行：保存完整 HTML 后，以 Chrome、Edge、Firefox 或 Safari 的现代版本打开。
+  默认走内嵌模式。Three.js、GSAP、Tailwind 样式、字体和行星贴图
+  均随文件交付。地址后添加 ?cdn=1 可尝试固定版本的 CDN。文件内也保存了从同一摄影机
+  逐帧渲染的宽银幕影片，可在没有 WebGL 2 的设备上播放、暂停和跳章。
+
+  代码索引（可在生成的 HTML 中按模块名搜索）：
+    states.js  六章片长、中文字幕、遥测关键帧及四份可点击的目标档案。
+    main.js    GSAP 播放头负责暂停、跳章、拖动进度、结尾选择和字幕同步。
+    world.js   地球自转带动地表锚点。空间站沿轨道运动，电影与探索共用所有设施。
+    navigation.js   把滚轮和双指手势映射到航线，沿球面绕行，再降低相机高度。
+    cinematography.js   108 秒确定性运镜。地面车队、轿厢、引导艇与轨道港依据世界时钟交接。
+    scenes/traffic.js   两座轨道港、货运和加注船及其余无人艇的班次、编队、泊位和灯光。
+    lift-shot.js    第四章的镜头读取轿厢的世界坐标，伴随轿厢上行至轨道港。
+    scenes/    地表设施、轨道模型及其着色器。远航章节以同一颗地球为坐标原点。
+    sky.js     星群的固有亮度及闪烁由 GPU 计算，视差来自指针归一化坐标。
+    atlas-credits 包含图像来源及第三方许可证。所有任务面板读数均为剧情模拟值。
+
+  修改章节时长或调换镜头时，请同时更新 states.js 中的字幕和遥测、cinematography.js 的绝对
+  时码，以及降级播放用的 assets/previews/mission-film.mp4。
+  用户拖动进度条后，所有视图从同一个时间重算，因此暂停或倒放定位不会累积动画误差。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a1a">
+  <meta name="description" content="登上流浪地球的观测席，沿六个电影章节远航，或自由探访行星发动机、太空电梯与轨道空间站。">
+  <title>流浪地球计划 · 行星航行档案</title>
+  <link rel="icon" href="./mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./tailwind.css">
+  <link rel="stylesheet" href="./screen.css">
+  <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
+</head>
+<body data-mode="film" data-film-idle="true" data-view="earth">
+  <svg xmlns="http://www.w3.org/2000/svg" class="symbol-library" aria-hidden="true"><defs>
+    <symbol id="i-mark" viewBox="0 0 48 48"><circle cx="24" cy="24" r="13"/><path d="M12 25c8 3 19-2 24-9M11 20c5 2 16 0 21-6M17 34c6 0 13-3 17-8M3 32c2 5 12 4 22-1s18-13 18-18c-1-3-7-2-11-1M4 39l8-3"/><circle cx="40" cy="12" r="2" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4zM16 8q4 4 0 8m3-11q7 7 0 14"/></symbol>
+    <symbol id="i-muted" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4zm13 0 5 6m0-6-5 6"/></symbol>
+    <symbol id="i-full" viewBox="0 0 24 24"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="19" height="15" rx="1"/><path d="M6.5 5v14m11-14v14M3 9h3m-3 5h3m12-5h3m-3 5h3"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14m8-14v14" stroke-width="3"/></symbol>
+    <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.8"/><path d="m16.2 7.8-2.3 6.1-6.1 2.3 2.3-6.1z"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M6 18 18 6M7 6h11v11"/></symbol>
+    <symbol id="i-replay" viewBox="0 0 24 24"><path d="M5.5 8.5a7.8 7.8 0 1 1-1 7M5 3v6h6"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12m0-12L6 18"/></symbol>
+    <symbol id="i-grip" viewBox="0 0 24 24"><path d="M5 8h14M5 12h14M5 16h10"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+    <symbol id="i-earth" viewBox="0 0 64 48"><g transform="rotate(-23 32 24)"><circle cx="32" cy="24" r="15"/><ellipse cx="32" cy="24" rx="8" ry="15"/><path d="M17 24h30M19 17q13 4 26 0m-26 14q13-4 26 0"/><ellipse cx="32" cy="25" rx="25" ry="6" transform="rotate(-10 32 25)"/></g></symbol>
+    <symbol id="i-engine" viewBox="0 0 64 48"><path d="M10 39h44M14 36l9-5 4-18h10l4 18 9 5M18 38l11-5 2-18m14 23-10-5-2-18m-9 10h16m-17 5h18m-15-9h12M25 12l2-3h10l2 3zM30 6 29 2m5 4 1-4M10 37l4-8h4m36 8-4-8h-4"/></symbol>
+    <symbol id="i-elevator" viewBox="0 0 64 48"><path d="M7 40q23-6 49-2M27 36l5-27 5 27m-8-7h6m-5-6h4m-3-7h2M21 36l8-4m14 4-8-4"/><ellipse cx="32" cy="7" rx="11" ry="3" transform="rotate(-16 32 7)"/><path d="M32 2v11"/></symbol>
+    <symbol id="i-station" viewBox="0 0 64 48"><g transform="rotate(-21 32 24)"><ellipse cx="32" cy="24" rx="17" ry="10"/><ellipse cx="32" cy="24" rx="13" ry="7"/><path d="M5 24h54M32 9v30M17 18l30 12m-30 0 30-12m-17 3h4v6h-4zM5 19h7v10H5zm47 0h7v10h-7z"/></g></symbol>
+  </defs></svg>
+
+  <main id="console" class="relative isolate h-full w-full overflow-hidden">
+    <div id="screening-frame">
+      <button id="reveal-player" class="reveal-player" aria-controls="film-player" aria-expanded="false" aria-label="显示电影播放控制">
+        <svg aria-hidden="true"><use href="#i-play"/></svg><span>播放控制</span>
+      </button>
+      <div id="space" tabindex="-1" aria-label="三维观测视窗。探索模式下拖动环视，对准目标向上滚动进入，向下滚动返回。触屏可点选目标，双指张开进入、合拢返回。"></div>
+      <div class="screen-shade" aria-hidden="true"></div>
+      <div id="curtain" aria-hidden="true"></div>
+      <div id="markers" aria-label="场景内观测目标"></div>
+      <div class="film-caption chapter" aria-label="章节与字幕">
+        <h1 id="chapter-zh">太阳即将熄灭</h1><p id="chapter-copy" class="story-copy"></p>
+      </div>
+      <section class="film-ui" id="film-controls" aria-label="电影播放控制">
+        <div class="film-player" id="film-player" inert>
+          <div class="transport flex items-center">
+            <button id="film-toggle" aria-keyshortcuts="Space" class="transport-btn flex items-center" aria-label="暂停电影"><svg><use id="film-icon" href="#i-pause"/></svg><span id="film-label">暂停</span></button>
+            <output class="timecode" id="film-time" aria-label="已播放">00:00</output>
+            <label class="progress-wrap"><span class="sr-only">电影进度</span><input id="film-progress" type="range" min="0" max="1000" step="1" value="0" aria-label="电影进度"></label>
+            <output class="timecode total" id="film-total" aria-label="电影总时长">00:00</output>
+          </div>
+          <div id="film-tools" class="film-tools flex items-center">
+            <button id="film-hide" class="icon-btn" aria-label="收起播放控制" title="收起播放控制"><svg><use href="#i-close"/></svg></button>
+          </div>
+          <nav class="chapter-nav grid grid-cols-6" aria-label="跳到电影章节">
+            <button class="chapter-tick" data-chapter="0" aria-keyshortcuts="1" aria-label="第一章，太阳即将熄灭" aria-current="step"><span>01</span><b class="tick-label">太阳危机</b></button>
+            <button class="chapter-tick" data-chapter="1" aria-keyshortcuts="2" aria-label="第二章，行星发动机点火"><span>02</span><b class="tick-label">点火</b></button>
+            <button class="chapter-tick" data-chapter="2" aria-keyshortcuts="3" aria-label="第三章，地球停止自转"><span>03</span><b class="tick-label">停转</b></button>
+            <button class="chapter-tick" data-chapter="3" aria-keyshortcuts="4" aria-label="第四章，太空电梯启动"><span>04</span><b class="tick-label">天梯</b></button>
+            <button class="chapter-tick" data-chapter="4" aria-keyshortcuts="5" aria-label="第五章，木星引力弹弓"><span>05</span><b class="tick-label">引力弹弓</b></button>
+            <button class="chapter-tick" data-chapter="5" aria-keyshortcuts="6" aria-label="第六章，飞向比邻星"><span>06</span><b class="tick-label">比邻星</b></button>
+          </nav>
+        </div>
+      </section>
+    </div>
+
+    <header class="topbar flex items-center justify-between">
+      <div class="agency flex items-center"><svg class="agency-seal" aria-hidden="true"><use href="#i-mark"/></svg><b>UEG</b><i></i><div class="agency-copy"><strong>流浪地球计划</strong><small>EARTH MIGRATION PROJECT</small></div></div>
+      <nav class="mode-switch flex items-center" aria-label="体验模式">
+        <button id="mode-film" class="mode-btn flex items-center" aria-pressed="true"><svg><use href="#i-film"/></svg>电影模式</button>
+        <button id="mode-explore" aria-keyshortcuts="E" class="mode-btn flex items-center" aria-pressed="false"><svg><use href="#i-compass"/></svg>自由探索</button>
+      </nav>
+      <div class="utilities flex items-center">
+        <div class="clock"><small>任务时间 UTC</small><time id="mission-clock">2061.02.16  08:42:00</time></div>
+        <button class="icon-btn" id="sound" title="开启环境音" aria-label="开启环境音" aria-pressed="false"><svg><use id="sound-icon" href="#i-muted"/></svg></button>
+        <button class="icon-btn" id="fullscreen" title="进入全屏" aria-label="进入全屏"><svg><use href="#i-full"/></svg></button>
+      </div>
+    </header>
+
+    <button id="telemetry-toggle" class="film-hud-toggle" aria-expanded="false" aria-controls="hud">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16V8m4 10V6m4 8v-4m4 7V7m4 8V9"/></svg><span id="telemetry-label">展开遥测</span>
+    </button>
+    <aside id="hud" class="hud" aria-label="航行遥测">
+      <details id="panel-engine" class="hud-panel tl" open>
+        <summary><span class="panel-symbol">∿</span><span class="panel-title">发动机</span><small>THRUST</small><svg><use href="#i-chevron"/></svg></summary>
+        <div class="panel-body"><div class="readout-label">聚变推力输出</div><div class="large-readout"><b id="engine-output">95.4</b><em>%</em></div>
+          <div class="power-rail" aria-hidden="true"><i id="meter-fill"></i></div>
+          <dl class="data-list"><div><dt>在线机组</dt><dd id="engine-count">10,824</dd></div><div><dt>核心温度</dt><dd id="engine-temp">3,560 K</dd></div></dl>
+        </div>
+      </details>
+      <details id="panel-orbit" class="hud-panel tr" open>
+        <summary><span class="panel-symbol">⌖</span><span class="panel-title">轨道</span><small>ORBIT</small><svg><use href="#i-chevron"/></svg></summary>
+        <div class="panel-body"><svg class="orbit-chart" viewBox="0 0 185 59" role="img" aria-label="日心轨道示意图"><defs><pattern id="chart-grid" width="13" height="13" patternUnits="userSpaceOnUse"><path d="M13 0H0v13" fill="none" stroke="#5493a0" opacity=".24" stroke-width=".6"/></pattern></defs><rect width="185" height="59" fill="url(#chart-grid)"/><g fill="none" stroke="#597786" stroke-width=".85" transform="rotate(-14 63 36)"><ellipse cx="63" cy="36" rx="18" ry="7"/><ellipse cx="63" cy="36" rx="34" ry="13"/><ellipse cx="63" cy="36" rx="52" ry="19"/></g><circle cx="63" cy="36" r="3" fill="#ffd29c"/><path d="M44 44q37 16 62-3t63-27" fill="none" stroke="#70dbe5" stroke-width="1.25" stroke-dasharray="3 3"/><circle id="orbit-dot" cx="114" cy="36" r="2.5" fill="#9cffff"/><path d="M158 12h12v9" fill="none" stroke="#6a9299" stroke-width=".6"/></svg>
+          <dl class="data-list"><div><dt>轨道速度</dt><dd id="orbit-speed">29.8 km/s</dd></div><div><dt>日心距离</dt><dd id="orbit-au">1.00 AU</dd></div><div><dt>自转角速度</dt><dd id="orbit-spin">15.04 °/h</dd></div></dl>
+        </div>
+      </details>
+      <details id="panel-mission" class="hud-panel bl" open>
+        <summary><span class="panel-symbol">↗</span><span class="panel-title">深空探测</span><small>DEEP SPACE</small><svg><use href="#i-chevron"/></svg></summary>
+        <div class="panel-body"><div class="readout-label">当前观测目标</div><div class="mission-target" id="mission-target">太阳</div>
+          <div class="route-line" aria-hidden="true"><i></i><span></span><b></b></div>
+          <dl class="data-list"><div><dt>信号延迟</dt><dd id="mission-duration">499 s</dd></div></dl>
+        </div>
+      </details>
+      <details id="panel-elevator" class="hud-panel br" open>
+        <summary><span class="panel-symbol">⇡</span><span class="panel-title">天梯</span><small>ELEVATOR</small><svg><use href="#i-chevron"/></svg></summary>
+        <div class="panel-body"><div class="elevator-detail"><svg viewBox="0 0 64 48" aria-hidden="true"><use href="#i-elevator"/></svg><div><span class="readout-label">轨道升降系统</span><strong id="elevator-state">待命</strong></div></div>
+          <dl class="data-list"><div><dt>轿厢高度</dt><dd id="elevator-alt">0 km</dd></div></dl>
+        </div>
+      </details>
+    </aside>
+
+    <div class="deck">
+      <section class="explore-ui" id="explore-controls" aria-label="探索目标导航">
+        <div class="explore-caption"><div><p id="hero-en">THE EARTH MIGRATION PROJECT</p><h1 id="hero-title">地球全景</h1></div>
+          <button id="show-info" class="outline-btn flex items-center" aria-controls="info-panel" aria-expanded="false"><svg><use href="#i-info"/></svg>目标档案</button></div>
+        <nav class="destinations grid grid-cols-4" aria-label="选择探索目标">
+          <button class="destination" data-go="earth" aria-pressed="true"><svg><use href="#i-earth"/></svg><span><b>地球全景</b><small>EARTH</small></span></button>
+          <button class="destination" data-go="engine" aria-pressed="false"><svg><use href="#i-engine"/></svg><span><b>行星发动机</b><small>ENGINES</small></span></button>
+          <button class="destination" data-go="elevator" aria-pressed="false"><svg><use href="#i-elevator"/></svg><span><b>太空电梯</b><small>ELEVATOR</small></span></button>
+          <button class="destination" data-go="station" aria-pressed="false"><svg><use href="#i-station"/></svg><span><b>轨道空间站</b><small>STATION</small></span></button>
+        </nav>
+      </section>
+    </div>
+
+    <footer class="statusline flex items-center justify-between"><div><i></i><span id="render-state">实时模拟</span><span class="status-slash">/</span><span id="view-code">UEG 2061</span></div>
+      <div class="hint"><span class="mouse-hint">拖动环视 · 对准目标向上滚动进入 · 向下滚动返回</span><span class="touch-hint">单指环视 · 点选目标 · 双指张开进入、合拢返回</span></div></footer>
+
+    <aside id="info-panel" class="archive-sheet" role="dialog" aria-labelledby="info-title" hidden>
+      <div class="archive-top flex items-center justify-between"><button id="info-handle" class="drag-handle flex items-center" title="拖动面板，或使用方向键移动" aria-label="移动档案面板，可用方向键移动"><svg><use href="#i-grip"/></svg>观测档案</button><button id="info-close" class="icon-btn" title="关闭档案" aria-label="关闭目标档案"><svg><use href="#i-close"/></svg></button></div>
+      <div class="archive-body"><p id="info-en"></p><h2 id="info-title">地球全景</h2><p id="info-copy"></p><dl id="info-data" class="data-list"></dl><button id="info-open" class="outline-btn">进入目标场景<svg><use href="#i-arrow"/></svg></button></div>
+    </aside>
+
+    <section id="ending" class="overlay end-overlay" role="dialog" aria-modal="true" aria-labelledby="ending-title" hidden>
+      <div class="ending-box"><svg class="end-mark" aria-hidden="true"><use href="#i-mark"/></svg>
+        <p class="overlay-en">END OF TRANSMISSION</p><h2 id="ending-title">航行档案放映完毕</h2><p id="ending-copy" class="ending-copy"></p>
+        <div class="end-actions flex items-center justify-center"><button id="replay" class="outline-btn"><svg><use href="#i-replay"/></svg>重新观看</button><button id="end-explore" class="primary-btn"><svg><use href="#i-compass"/></svg>自由探索</button></div>
+      </div>
+    </section>
+    <section id="loading" class="overlay loading-overlay" aria-labelledby="loading-title">
+      <div class="boot-box"><div class="boot-mark"><svg aria-hidden="true"><use href="#i-mark"/></svg><span>UEG</span></div>
+        <p class="overlay-en">EARTH MIGRATION PROJECT</p><h2 id="loading-title">流浪地球计划</h2>
+        <div class="boot-progress"><div class="flex items-center justify-between"><span id="loading-label">正在建立观测链路</span><output id="loading-percent">0%</output></div><progress id="loading-progress" value="0" max="100" aria-label="场景加载进度"></progress></div>
+      </div>
+    </section>
+    <div class="sr-only" id="announce" role="status" aria-live="polite"></div>
+  </main>
+  <script src="./vendor/gsap.min.js"></script>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+Jupiter surface map is adapted from PIA07782, Cassini's Best Maps of Jupiter (Cylindrical Map), NASA/JPL/Space Science Institute. The map was resized.
+https://www.jpl.nasa.gov/images/pia07782-cassinis-best-maps-of-jupiter-cylindrical-map/
+
+Solar active-region detail is adapted from an SDO/AIA 171 Å image from 2026-11-18 11:56:10 UT. Courtesy of NASA/SDO and the AIA science team. The visible disk was cropped and converted to grayscale. It supplies art-directed detail to the animated fictional star shaders, including a projected far hemisphere.
+https://sdo.gsfc.nasa.gov/data/

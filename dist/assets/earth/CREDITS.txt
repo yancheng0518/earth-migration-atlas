@@ -1,0 +1,25 @@
+Earth surface and clouds
+NASA Goddard Space Flight Center / NASA Earth Observatory. Blue Marble imagery by Reto Stöckli, with enhancements by Robert Simmon and data from the MODIS and Blue Marble teams.
+Surface: July 2004 Blue Marble: Next Generation, resized from 5400×2700.
+https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-map/
+Clouds: NASA's Blue Marble (2002) global cloud composite, converted to grayscale.
+https://science.nasa.gov/earth/earth-observatory/the-blue-marble-true-color-global-imagery-at-1km-resolution/
+
+Earth at night
+NASA Earth Observatory / NASA Goddard Space Flight Center, Black Marble 2016. Suomi NPP VIIRS observations. Resized with the red channel retained for an approximate city-light intensity mask.
+https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/
+
+NASA media usage guidance
+https://www.nasa.gov/nasa-brand-center/images-and-media/
+
+The fictional migration project, orbital geometry, engines, lighting, timing and telemetry are original visualizations, not NASA observations or a NASA-endorsed project.
+
+Regional terrain beneath CN-07
+Mapzen Terrain Tiles on AWS, Terrarium zoom 7 tiles x=101–106, y=61–66.
+Global SRTM and GMTED2010 terrain data courtesy of the U.S. Geological Survey.
+ETOPO1: NOAA National Centers for Environmental Information, U.S. Department of Commerce.
+https://registry.opendata.aws/terrain-tiles/
+https://github.com/tilezen/joerd/blob/master/docs/attribution.md
+https://elevation-tiles-prod.s3.amazonaws.com/terrarium/7/104/64.png
+The regional map spans 104.0625–120.9375° E and approximately 8.41° S–8.41° N.
+Positive terrain heights were converted to east and north slope and normalized elevation for an offline relief texture. The regional ice, fractures, lighting and engine service roads are fictional artistic additions.
