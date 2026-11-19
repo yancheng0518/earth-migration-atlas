@@ -383,7 +383,7 @@ export async function openWorld({
     'wheel',
     (e) => {
       const label = e.target.closest('.world-marker');
-      if (!exploring || (e.target !== surface && !label)) return;
+      if (!alive || !exploring || (e.target !== surface && !label)) return;
       e.preventDefault();
       const units = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? height : 1;
       zoomAt(clamp((-e.deltaY * units) / 1250, -0.27, 0.27), e.clientX, e.clientY);
@@ -392,7 +392,7 @@ export async function openWorld({
     { passive: false },
   );
   input.addEventListener('pointerdown', (e) => {
-    if (!exploring || e.button !== 0) return;
+    if (!alive || !exploring || e.button !== 0) return;
     const label = e.pointerType === 'touch' ? e.target.closest('.world-marker') : null;
     if (e.target !== surface && !label) return;
     // A finger landing on a label can still form a pinch with the canvas.
