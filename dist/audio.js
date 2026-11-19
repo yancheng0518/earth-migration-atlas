@@ -1,3 +1,5 @@
+import { departureCue } from './states.js';
+
 /** Keep the platform's own player and controls in one iframe across film and
  * exploration. The official widget does not expose a public seek API. A file
  * picked by its owner can use the camera clock directly, entirely on-device. */
@@ -7,7 +9,7 @@ export function createSoundtrack() {
   const triggers = [byId('sound'), byId('score-unlock')];
   const service = byId('music-service');
   const music = new Audio();
-  const climax = 98;
+  const climax = departureCue;
   let mode = 'film', time = 0, playing = false, cue = climax, fileUrl = '';
   let localEnabled = false, opener, lastCorrection = 0, playPending = false, needsGesture = false;
 

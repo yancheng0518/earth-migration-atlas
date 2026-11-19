@@ -35,24 +35,30 @@ export function makeSky() {
     blending: THREE.AdditiveBlending,
     vertexShader: `attribute float size; uniform float pixelRatio,time; varying vec3 tint;
       void main(){tint=color*(.86+.14*sin(time*.63+position.y));gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_Position.z=gl_Position.w*(1.-1e-7);gl_PointSize=max(1.,size*pixelRatio);}`,
-    fragmentShader: `varying vec3 tint;void main(){float d=length(gl_PointCoord-.5)*2.;gl_FragColor=vec4(tint,.78*(1.-smoothstep(.08,1.,d)));}`,
+    fragmentShader: `varying vec3 tint;void main(){float d=length(gl_PointCoord-.5)*2.;gl_FragColor=vec4(tint*.62,.64*(1.-smoothstep(.08,1.,d)));
+      #include <colorspace_fragment>
+    }`,
   });
   sky.add(new THREE.Points(stars, material));
   const dust = new THREE.Mesh(
     new THREE.SphereGeometry(680, 32, 24),
     new THREE.ShaderMaterial({
+      uniforms: { dustVisibility: { value: 1 } },
       side: THREE.BackSide,
       depthWrite: false,
       vertexShader: `varying vec3 dir;void main(){dir=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_Position.z=gl_Position.w*(1.-1e-7);}`,
       fragmentShader: `
       varying vec3 dir;
+      uniform float dustVisibility;
       float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.545);}
       float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
       void main(){vec3 d=normalize(dir);float ax=atan(d.z,d.x);float b=d.y-.36*sin(ax-1.8);
       vec2 p=vec2(d.x*4.+d.z*1.5,b*5.);float n=noise(p)*.55+noise(p*2.3)*.29+noise(p*5.7)*.16;
       float band=exp(-b*b*31.)*pow(n,2.4);float cleft=1.-.64*exp(-abs(b+.03*sin(ax*8.))*23.);
-      vec3 base=mix(vec3(.011,.022,.035),vec3(.022,.033,.05),.5+.5*d.y);
-      gl_FragColor=vec4(base+vec3(.18,.18,.21)*band*cleft,1.);}`,
+      vec3 base=mix(vec3(.0025,.0035,.0055),vec3(.004,.0055,.008),.5+.5*d.y);
+      gl_FragColor=vec4(base+vec3(.060,.060,.067)*band*cleft*dustVisibility,1.);
+      #include <colorspace_fragment>
+      }`,
     }),
   );
   dust.renderOrder = -100;
@@ -64,6 +70,11 @@ export function makeSky() {
     },
     setPixelRatio(value) {
       material.uniforms.pixelRatio.value = value;
+    },
+    setDistance(scale) {
+      // The fixed sky is the view from the Solar neighbourhood. Its dust band
+      // yields to the modeled galactic disk as the camera leaves that volume.
+      dust.material.uniforms.dustVisibility.value = 1 - 0.96 * THREE.MathUtils.smoothstep(scale, 1.2, 2);
     },
   };
 }

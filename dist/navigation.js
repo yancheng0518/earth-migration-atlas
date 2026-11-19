@@ -29,6 +29,7 @@ export function createNavigation(models) {
     destination = 0,
     route = 'engine',
     queued = null;
+  const farAngles = { yaw: 0, pitch: 0 };
   const angles = Object.fromEntries(['engine', 'elevator', 'station'].map((id) => [id, { yaw: 0, pitch: 0 }]));
   const siteEye = new THREE.Vector3(),
     siteAim = new THREE.Vector3(),
@@ -109,6 +110,7 @@ export function createNavigation(models) {
     pose.aim.copy(siteAim).multiplyScalar(smooth(fraction, 0, id === 'engine' ? 0.48 : 0.73));
     pose.fov = THREE.MathUtils.lerp(40, model.fov, smooth(fraction, 0.37, 1));
     pose.near = THREE.MathUtils.lerp(0.00065, 0.034, smooth(height, 0.018, 0.7));
+    pose.far = 1400;
     return pose;
   }
   function setOrbit() {
@@ -120,6 +122,7 @@ export function createNavigation(models) {
     overviewDistance = 8.6;
     route = 'engine';
     queued = null;
+    farAngles.yaw = farAngles.pitch = 0;
     for (const a of Object.values(angles)) a.yaw = a.pitch = 0;
     setOrbit();
   }
@@ -130,13 +133,16 @@ export function createNavigation(models) {
     azimuth = Math.atan2(dir.x, dir.z);
     setOrbit();
   }
+  // One signed scale control places Earth at zero. Facilities share the
+  // inward leg, while both far views use the same outward leg in reverse.
+  const scales = { earth: 0, solar: -1, galaxy: -2 };
   function go(id) {
     queued = null;
-    if (id === 'earth') {
-      destination = 0;
+    if (Object.hasOwn(scales, id)) {
+      destination = scales[id];
       return;
     }
-    if (route === id || depth < 0.012) {
+    if (route === id || depth <= 0) {
       route = id;
       destination = 1;
     } else {
@@ -146,12 +152,16 @@ export function createNavigation(models) {
   }
   function zoom(amount, candidate) {
     queued = null;
-    if (depth < 0.015 && destination < 0.025 && amount > 0) route = angles[candidate] ? candidate : 'engine';
-    if (destination === 0 && amount < 0) overviewDistance = Math.min(12.5, overviewDistance - amount * 3);
-    destination = clamp(destination + amount, 0, 1);
+    if (depth <= 0 && destination <= 0 && destination + amount > 0 && angles[candidate]) route = candidate;
+    destination = clamp(destination + amount, -2, 1);
   }
   function drag(x, y, extent) {
     const gain = (Math.PI * 1.45) / Math.max(280, extent);
+    if (depth < -0.025) {
+      farAngles.yaw -= x * gain * 0.46;
+      farAngles.pitch = clamp(farAngles.pitch - y * gain * 0.26, -0.49, 0.49);
+      return;
+    }
     const localWeight = smooth(depth, 0.16, 0.82);
     azimuth -= x * gain * (1 - localWeight);
     latitude = clamp(latitude + y * gain * (1 - localWeight), -1.43, 1.43);
@@ -165,12 +175,12 @@ export function createNavigation(models) {
       cap = (reduced ? 3.0 : 0.54) * dt;
     depth += clamp(delta * (1 - Math.exp(-dt * 9)), -cap, cap);
     if (Math.abs(depth - destination) < 0.001) depth = destination;
-    if (queued && depth <= 0.002) {
+    if (queued && depth === 0) {
       route = queued;
       queued = null;
       destination = 1;
     }
-    return sample(route, depth);
+    return sample(route, Math.max(0, depth));
   }
   return {
     sample,
@@ -180,6 +190,7 @@ export function createNavigation(models) {
     drag,
     zoom,
     step,
+    farAngles,
     get depth() {
       return depth;
     },

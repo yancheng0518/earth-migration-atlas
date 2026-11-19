@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { liftProgress, ignitionDemand } from './states.js';
+import { cosmicScale, liftProgress, ignitionDemand } from './states.js';
 import { createLiftShot } from './lift-shot.js';
 
 const R = 2.2;
@@ -122,7 +122,7 @@ export function createCinematography(models, navigation, traffic) {
     positionSystem(sun, t, solarPhase, 520 * ease(t, 11.5, 30) + 170 * ease(t, 45, 97));
     positionSystem(jupiter, t, jovePhase, 570 * (1 - ease(t, 62, 86)) + 820 * ease(t, 94.5, 108));
     positionSystem(proxima, t, exitPhase, 0);
-    proxima.setWake(ease(t, 87.5, 99.5));
+    proxima.setWake(ease(t, 87.5, 99.5) * (1 - ease(cosmicScale(t), 0, 0.17)));
     sun.lightSource
       .getWorldPosition(light)
       .normalize()

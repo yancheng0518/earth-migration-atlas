@@ -8,7 +8,9 @@ import { createNavigation } from './navigation.js';
 import { makeSky } from './sky.js';
 import { createCinematography } from './cinematography.js';
 import { createTraffic } from './scenes/traffic.js';
-import { installReflections } from './lighting.js';
+import { createBloom, installReflections } from './lighting.js';
+import { createCosmic } from './cosmic.js';
+import { cosmicScale, cosmicStart } from './states.js';
 
 const clamp = THREE.MathUtils.clamp;
 const smooth = THREE.MathUtils.smoothstep;
@@ -31,6 +33,7 @@ export async function openWorld({
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
+  const bloom = createBloom(renderer);
   const surface = renderer.domElement;
   surface.style.touchAction = 'none';
   viewport.append(surface);
@@ -82,7 +85,8 @@ export async function openWorld({
   // One ground-normal coordinate frame per installation. Frames, model identity
   // and geometry survive zoom, orbit, inspection, cinematic playback and replay.
   const earth = models.earth;
-  scene.add(earth.group);
+  const cosmic = createCosmic();
+  scene.add(earth.group, cosmic.group);
   for (const id of facilities) {
     const model = models[id];
     model.group.scale.setScalar(model.sharedScale ?? { engine: 0.0023, elevator: 0.02, station: 0.065 }[id]);
@@ -108,7 +112,15 @@ export async function openWorld({
   const departureUp = new THREE.Vector3();
   let handoff = 1,
     departureFov = 40,
-    departureNear = 0.03;
+    departureNear = 0.03,
+    departureFar = 1400,
+    departureScale = 0,
+    visibleScale = 0;
+  const celestialOrbit = new THREE.Vector3(0, 0.12, 1).normalize();
+  const closingPose = {eye: new THREE.Vector3(), aim: new THREE.Vector3(), up: new THREE.Vector3(), near: 0.03, fov: 40};
+  const closingDirection = new THREE.Vector3();
+  const closingTurn = new THREE.Quaternion();
+  const closingRotation = new THREE.Quaternion();
   const reticleUniforms = new Map();
   for (const id of ['earth', ...facilities]) {
     for (const entry of models[id].pickables) {
@@ -174,9 +186,9 @@ export async function openWorld({
     models.station.update(time, dt);
     // Fixed horizon lighting remains available on the cable and rotating station;
     // the engine's local warm sources take over inside its twilight valley.
-    solar.intensity = 2.2 * (1 - 0.87 * approach);
-    hemi.intensity = 1.33 * (1 - 0.85 * approach);
-    bounce.intensity = 1.05 * (1 - 0.85 * approach);
+    solar.intensity = 2.28 * (1 - 0.87 * approach);
+    hemi.intensity = 0.92 * (1 - 0.78 * approach);
+    bounce.intensity = 0.72 * (1 - 0.79 * approach);
     earth.group.updateMatrixWorld();
   }
   function density(v) {
@@ -207,13 +219,25 @@ export async function openWorld({
     const fov = THREE.MathUtils.radToDeg(
       2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(pose.fov / 2)) * Math.max(1, minAspect / camera.aspect)),
     );
-    if (Math.abs(fov - lastFov) > 0.001 || Math.abs(pose.near - lastNear) > 1e-7) {
+    const far = pose.far ?? 1400;
+    if (Math.abs(fov - lastFov) > 0.001 || Math.abs(pose.near - lastNear) > 1e-7 || camera.far !== far) {
       lastFov = camera.fov = fov;
       lastNear = camera.near = pose.near;
+      camera.far = far;
       camera.updateProjectionMatrix();
     }
     camera.updateMatrixWorld();
   }
+  function updateScale(scale, time) {
+    visibleScale = scale;
+    earth.group.visible = scale < 1.35;
+    for (const id of epochs) models[id].group.visible = scale <= 0.16;
+    for (const id of facilities) models[id].group.visible = scale < 0.31;
+    traffic.group.visible = scale < 0.31;
+    cosmic.update(scale, time, camera, height);
+    sky.setDistance?.(scale);
+  }
+  const scaleName = (scale) => scale >= 1.46 ? 'galaxy' : scale >= 0.48 ? 'solar' : 'earth';
   function storyPose() {
     const { index, p, time } = frame;
     const state = cinematography.update(time);
@@ -221,8 +245,31 @@ export async function openWorld({
     updateEarth(time, 0, state.ground, state.power, state.cabin);
     cinematography.environment(time);
     traffic.update(time, camera, height);
-    const pose = cinematography.sample(time);
+    const scale = cosmicScale(time);
+    let pose = cinematography.sample(Math.min(time, cosmicStart));
+    if (time > 104.5) {
+      // Level the lens on the same moving Earth before the wider orbits enter
+      // the field. The zero-scale pose is shared with the reversible flyout.
+      const v = THREE.MathUtils.smootherstep(time, 104.5, cosmicStart);
+      const globe = navigation.sample('engine', 0, celestialOrbit);
+      // Orbit the Earth instead of taking a chord that could cross the crust.
+      closingDirection.copy(pose.eye).normalize();
+      closingTurn.setFromUnitVectors(closingDirection, celestialOrbit);
+      closingRotation.identity().slerp(closingTurn, v);
+      const altitude = 2.2 + Math.exp(THREE.MathUtils.lerp(
+        Math.log(Math.max(0.001, pose.eye.length() - 2.2)),
+        Math.log(globe.eye.length() - 2.2),
+        v,
+      ));
+      closingPose.eye.copy(closingDirection).applyQuaternion(closingRotation).multiplyScalar(altitude);
+      closingPose.aim.lerpVectors(pose.aim, globe.aim, v);
+      closingPose.up.lerpVectors(pose.up, globe.up, v).normalize();
+      closingPose.near = THREE.MathUtils.lerp(pose.near, globe.near, v);
+      closingPose.fov = THREE.MathUtils.lerp(pose.fov, globe.fov, v);
+      pose = scale > 0 ? cosmic.sample(scale, closingPose) : closingPose;
+    }
     applyPose(pose, 1);
+    updateScale(scale, time);
     const id = [
       'sun',
       state.depth > 0.41 ? 'engine' : 'earth',
@@ -230,6 +277,8 @@ export async function openWorld({
       time > 71.5 ? 'station' : 'elevator',
       'jupiter',
       'proxima',
+      'solar',
+      'galaxy',
     ][index];
     sceneName(id);
   }
@@ -255,8 +304,11 @@ export async function openWorld({
           Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.max(1, 0.93 / camera.aspect)),
         );
       departureNear = camera.near;
+      departureFar = camera.far;
+      departureScale = visibleScale;
       navigation.reset();
       cinematography.resumeNavigation(frame.time);
+      if (visibleScale > 0) navigation.resumeShot('engine', -visibleScale, celestialOrbit);
       handoff = reduced.matches ? 1 : 0;
       exploring = true;
       elapsed = frame.time;
@@ -297,7 +349,7 @@ export async function openWorld({
     return result;
   }
   function hit() {
-    if (!exploring) return null;
+    if (!exploring || visibleScale > 0.25) return null;
     // The orbital proxies are useful at a distance. Inside a terminal their
     // radius can enclose the camera: use only the actual model at this scale.
     const deep = navigation.depth > 0.55;
@@ -315,13 +367,13 @@ export async function openWorld({
     return null;
   }
   function zoomTarget() {
-    if (navigation.depth > 0.015) return null;
+    if (Math.abs(navigation.depth) > 0.015) return null;
     const exact = hit();
     if (facilities.includes(exact)) return exact;
     const coords = readMarkers(),
       x = ((1 + pointer.x) * width) / 2,
       y = ((1 - pointer.y) * height) / 2;
-    let target = 'engine',
+    let target = null,
       best = 35;
     for (const [id, [mx, my]] of Object.entries(coords)) {
       const d = Math.hypot(mx - x, my - y);
@@ -409,15 +461,16 @@ export async function openWorld({
   });
   // Prime the full system, including the near-ground materials and rotating
   // berth lights. All of it remains attached to this scene for the entire reel.
-  for (const [i, time] of [1, 26, 60, 73, 90, 103].entries()) {
+  for (const [i, [index, time]] of [[0,1],[1,26],[3,60],[3,73],[4,90],[5,103],[6,120],[7,135]].entries()) {
+    frame.index = index;
     frame.time = time;
     storyPose();
     if (renderer.compileAsync) await renderer.compileAsync(scene, camera);
     else renderer.compile(scene, camera);
-    onProgress(83 + (i + 1) * 2.6, '校准宽银幕摄影机');
+    onProgress(83 + (i + 1) * 2, '校准宽银幕摄影机');
     await nextFrame();
   }
-  frame.time = 0;
+  frame.time = frame.index = 0;
   storyPose();
   sceneName('sun');
   viewport.classList.add('ready');
@@ -430,7 +483,12 @@ export async function openWorld({
         elapsed += dt;
         const ground = navigation.route === 'engine' ? smooth(navigation.depth, 0.49, 0.96) : 0;
         updateEarth(elapsed, dt, ground, 1);
-        const pose = navigation.step(dt, reduced.matches);
+        let pose = navigation.step(dt, reduced.matches);
+        let scale = Math.max(0, -navigation.depth);
+        if (scale > 0) {
+          const { yaw, pitch } = navigation.farAngles;
+          pose = cosmic.sample(scale, pose, yaw, pitch);
+        }
         if (handoff < 1) {
           // When leaving a wide film shot the viewer can watch its Earth grow
           // into the explorable globe. Preserve altitude even on a far-side arc.
@@ -455,13 +513,17 @@ export async function openWorld({
           pose.up.lerp(departureUp, 1 - v).normalize();
           pose.fov = THREE.MathUtils.lerp(departureFov, pose.fov, v);
           pose.near = THREE.MathUtils.lerp(departureNear, pose.near, v);
+          pose.far = Math.max(pose.far ?? 1400, departureFar);
+          scale = THREE.MathUtils.lerp(departureScale, scale, v);
         }
         models.proxima.setWake(0);
         applyPose(pose, 0.93);
+        updateScale(scale, elapsed);
+        earth.setDiagrams(scale < 0.24);
         traffic.update(elapsed, camera, height);
-        sceneName(navigation.depth > 0.45 ? navigation.route : 'earth');
+        sceneName(navigation.depth > 0.45 ? navigation.route : scaleName(scale));
         if (stamp - lastHud > 95) {
-          onMarkers(navigation.depth < 0.34 ? readMarkers() : {});
+          onMarkers(navigation.depth < 0.34 && scale < 0.20 ? readMarkers() : {});
           viewport.dataset.flight = String(Math.round(navigation.depth * 100));
           lastHud = stamp;
         }
@@ -478,7 +540,7 @@ export async function openWorld({
         dirty = false;
       }
       for (const model of lodModels) model.updateLOD(camera, height);
-      renderer.render(scene, camera);
+      bloom.render(scene, camera);
       slow = dt > 0.034 ? slow + 1 : Math.max(0, slow - 0.55);
       if (slow > 15 && dpr > 0.49) {
         density(Math.max(0.48, dpr * 0.82));
@@ -493,6 +555,7 @@ export async function openWorld({
       e.preventDefault();
       alive = false;
       observer.disconnect();
+      bloom.dispose();
       reflections.dispose();
       onLoss(current);
     },

@@ -40,7 +40,8 @@ const put = (id, value) => {
     s = String(value);
   if (el.textContent !== s) el.textContent = s;
 };
-const sceneFor = (i, p) => ['sun', p < 0.75 ? 'engine' : 'earth', 'earth', 'elevator', 'jupiter', 'proxima'][i];
+const sceneFor = (i, p) =>
+  ['sun', p < 0.75 ? 'engine' : 'earth', 'earth', 'elevator', 'jupiter', 'proxima', 'solar', 'galaxy'][i];
 const labels = {
   sun: 'SOL',
   earth: 'EARTH',
@@ -49,6 +50,8 @@ const labels = {
   station: 'AURORA',
   jupiter: 'JOVE',
   proxima: 'PROXIMA',
+  solar: 'SOL',
+  galaxy: 'MILKY WAY',
 };
 let shownFraction = 0;
 function progress(value, label) {
@@ -276,7 +279,7 @@ const timeline = gsap.timeline({
 });
 timeline.to(clock, { seconds: total, duration: total, ease: 'none' }, 0);
 put('film-total', fmt(total));
-put('ending-copy', '地球已越过木星。下一班值守人员，将继续记录通往比邻星的航程。');
+put('ending-copy', '银河旋臂里，地球继续飞向比邻星。下一班值守人员将接续记录这段航程。');
 function setMode(next) {
   mode = next;
   document.body.dataset.mode = next;
@@ -339,6 +342,14 @@ function choose(id) {
     if (selected !== id) describeDestination(id);
   } else world.explore(id);
 }
+const exploreReadings = {
+  earth: [94.7, 31.3, 1.02, 0, 35786, 499],
+  engine: [98.6, 31.3, 1.02, 0, 35786, 0.12],
+  elevator: [92.9, 31.3, 1.02, 0, 16000, 0.22],
+  station: [93.8, 31.3, 1.02, 0, 35786, 0.16],
+  solar: [96.5, 49.81, 82.3, 0, 35786, 41068],
+  galaxy: [96.5, 49.81, 82.3, 0, 35786, 133790000],
+};
 function describeDestination(id) {
   selected = id;
   const d = dossiers[id];
@@ -346,12 +357,7 @@ function describeDestination(id) {
   put('hero-en', d.en);
   destinations.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.go === id)));
   dataTween?.kill();
-  const v = {
-    earth: [94.7, 31.3, 1.02, 0, 35786, 499],
-    engine: [98.6, 31.3, 1.02, 0, 35786, 0.12],
-    elevator: [92.9, 31.3, 1.02, 0, 16000, 0.22],
-    station: [93.8, 31.3, 1.02, 0, 35786, 0.16],
-  }[id];
+  const v = exploreReadings[id];
   dataTween = gsap.to(live, {
     ...Object.fromEntries(fields.map((key, n) => [key, v[n]])),
     duration: reduced.matches ? 0 : 1.25,
@@ -367,8 +373,7 @@ gsap.ticker.add((time, ms) => {
   if (time - lastExplore < 0.14) return;
   lastExplore = time;
   if (!dataTween?.isActive()) {
-    live.thrust =
-      { earth: 94.7, engine: 98.6, elevator: 92.9, station: 93.8 }[selected] + Math.sin(exploreTime * 0.51) * 0.22;
+    live.thrust = exploreReadings[selected][0] + Math.sin(exploreTime * 0.51) * 0.22;
     if (selected === 'elevator')
       live.alt = 35786 * (world?.lift.ascent ?? 0.5 + 0.5 * Math.sin(exploreTime * 0.126 + 0.05));
   }
@@ -562,8 +567,8 @@ window.addEventListener('keydown', (e) => {
   }
   const n = Number(e.key) - 1;
   if (!e.target.matches('input') && Number.isInteger(n) && n >= 0) {
-    if (mode === 'film' && n < 6) seek(startTimes[n]);
-    else if (mode === 'explore' && n < 4) choose(terms[n]);
+    if (mode === 'film' && n < chapters.length) seek(startTimes[n]);
+    else if (mode === 'explore' && n < terms.length) choose(terms[n]);
   }
 });
 document.addEventListener('visibilitychange', () => {

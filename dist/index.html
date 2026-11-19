@@ -8,11 +8,11 @@
   逐帧渲染的宽银幕影片，可在没有 WebGL 2 的设备上播放、暂停和跳章。
 
   代码索引（可在生成的 HTML 中按模块名搜索）：
-    states.js  六章片长、中文字幕、遥测关键帧及四份可点击的目标档案。
+    states.js  八章片长、中文字幕、遥测关键帧及可点击的目标档案。
     main.js    GSAP 播放头负责暂停、跳章、拖动进度、结尾选择和字幕同步。
     world.js   地球自转带动地表锚点。空间站沿轨道运动，电影与探索共用所有设施。
     navigation.js   把滚轮和双指手势映射到航线，沿球面绕行，再降低相机高度。
-    cinematography.js   108 秒确定性运镜。地面车队、轿厢、引导艇与轨道港依据世界时钟交接。
+    cinematography.js   138 秒连续运镜。地面车队、轿厢、引导艇与轨道港依据世界时钟交接。
     scenes/traffic.js   两座轨道港、货运和加注船及其余无人艇的班次、编队、泊位和灯光。
     lift-shot.js    第四章的镜头读取轿厢的世界坐标，伴随轿厢上行至轨道港。
     scenes/    地表设施、轨道模型及其着色器。远航章节以同一颗地球为坐标原点。
@@ -28,7 +28,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0a0a1a">
-  <meta name="description" content="登上流浪地球的观测席，沿六个电影章节远航，或自由探访行星发动机、太空电梯与轨道空间站。">
+  <meta name="description" content="从单台行星发动机远航至银河，在地球、太阳系和银河之间连续缩放，收听《流浪地球》电影原声。">
   <title>流浪地球计划 · 行星航行档案</title>
   <link rel="icon" href="./mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./tailwind.css">
@@ -60,11 +60,13 @@
 
   <main id="console" class="relative isolate h-full w-full overflow-hidden">
     <div id="screening-frame">
-      <button id="score-unlock" class="score-unlock" aria-controls="music-panel" aria-expanded="false"><svg aria-hidden="true"><use href="#i-sound"/></svg><span>电影原声</span></button>
-      <button id="reveal-player" class="reveal-player" aria-controls="film-player" aria-expanded="false" aria-label="显示电影播放控制">
-        <svg aria-hidden="true"><use href="#i-play"/></svg><span>播放控制</span>
-      </button>
-      <div id="space" tabindex="-1" aria-label="三维观测视窗。探索模式下拖动环视，对准目标向上滚动进入，向下滚动返回。触屏可点选目标，双指张开进入、合拢返回。"></div>
+      <div class="film-quick">
+        <button id="reveal-player" class="reveal-player" aria-controls="film-player" aria-expanded="false" aria-label="显示电影播放控制">
+          <svg aria-hidden="true"><use href="#i-play"/></svg><span>播放控制</span>
+        </button>
+        <button id="score-unlock" class="score-unlock" aria-controls="music-panel" aria-expanded="false"><svg aria-hidden="true"><use href="#i-sound"/></svg><span>网易云原声</span></button>
+      </div>
+      <div id="space" tabindex="-1" aria-label="三维观测视窗。探索模式下拖动环视，向上滚动推近，向下滚动拉远。触屏可点选目标，双指张开推近、合拢拉远。"></div>
       <div class="screen-shade" aria-hidden="true"></div>
       <div id="curtain" aria-hidden="true"></div>
       <div id="markers" aria-label="场景内观测目标"></div>
@@ -82,13 +84,15 @@
           <div id="film-tools" class="film-tools flex items-center">
             <button id="film-hide" class="icon-btn" aria-label="收起播放控制" title="收起播放控制"><svg><use href="#i-close"/></svg></button>
           </div>
-          <nav class="chapter-nav grid grid-cols-6" aria-label="跳到电影章节">
+          <nav class="chapter-nav" aria-label="跳到电影章节">
             <button class="chapter-tick" data-chapter="0" aria-keyshortcuts="1" aria-label="第一章，太阳即将熄灭" aria-current="step"><span>01</span><b class="tick-label">太阳危机</b></button>
             <button class="chapter-tick" data-chapter="1" aria-keyshortcuts="2" aria-label="第二章，行星发动机点火"><span>02</span><b class="tick-label">点火</b></button>
             <button class="chapter-tick" data-chapter="2" aria-keyshortcuts="3" aria-label="第三章，地球停止自转"><span>03</span><b class="tick-label">停转</b></button>
             <button class="chapter-tick" data-chapter="3" aria-keyshortcuts="4" aria-label="第四章，太空电梯启动"><span>04</span><b class="tick-label">天梯</b></button>
             <button class="chapter-tick" data-chapter="4" aria-keyshortcuts="5" aria-label="第五章，木星引力弹弓"><span>05</span><b class="tick-label">引力弹弓</b></button>
             <button class="chapter-tick" data-chapter="5" aria-keyshortcuts="6" aria-label="第六章，飞向比邻星"><span>06</span><b class="tick-label">比邻星</b></button>
+            <button class="chapter-tick" data-chapter="6" aria-keyshortcuts="7" aria-label="第七章，穿越太阳系"><span>07</span><b class="tick-label">太阳系</b></button>
+            <button class="chapter-tick" data-chapter="7" aria-keyshortcuts="8" aria-label="第八章，银河远景"><span>08</span><b class="tick-label">银河</b></button>
           </nav>
         </div>
       </section>
@@ -102,14 +106,11 @@
       </nav>
       <div class="utilities flex items-center">
         <div class="clock"><small>任务时间 UTC</small><time id="mission-clock">2061.02.16  08:42:00</time></div>
-        <button class="icon-btn" id="sound" title="电影原声" aria-label="电影原声" aria-controls="music-panel" aria-expanded="false"><svg aria-hidden="true"><use id="sound-icon" href="#i-sound"/></svg><span id="sound-label">电影原声</span></button>
+        <button class="icon-btn" id="sound" title="网易云原声" aria-label="网易云原声" aria-controls="music-panel" aria-expanded="false"><svg aria-hidden="true"><use id="sound-icon" href="#i-sound"/></svg><span id="sound-label">网易云原声</span></button>
         <button class="icon-btn" id="fullscreen" title="进入全屏" aria-label="进入全屏"><svg><use href="#i-full"/></svg></button>
       </div>
     </header>
 
-    <button id="telemetry-toggle" class="film-hud-toggle" aria-expanded="false" aria-controls="hud">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16V8m4 10V6m4 8v-4m4 7V7m4 8V9"/></svg><span id="telemetry-label">展开遥测</span>
-    </button>
     <aside id="hud" class="hud" aria-label="航行遥测">
       <details id="panel-engine" class="hud-panel tl" open>
         <summary><span class="panel-symbol">∿</span><span class="panel-title">发动机</span><small>THRUST</small><svg><use href="#i-chevron"/></svg></summary>
@@ -141,19 +142,28 @@
 
     <div class="deck">
       <section class="explore-ui" id="explore-controls" aria-label="探索目标导航">
-        <div class="explore-caption"><div><p id="hero-en">THE EARTH MIGRATION PROJECT</p><h1 id="hero-title">地球全景</h1></div>
-          <button id="show-info" class="outline-btn flex items-center" aria-controls="info-panel" aria-expanded="false"><svg><use href="#i-info"/></svg>目标档案</button></div>
-        <nav class="destinations grid grid-cols-4" aria-label="选择探索目标">
-          <button class="destination" data-go="earth" aria-pressed="true"><svg><use href="#i-earth"/></svg><span><b>地球全景</b><small>EARTH</small></span></button>
-          <button class="destination" data-go="engine" aria-pressed="false"><svg><use href="#i-engine"/></svg><span><b>行星发动机</b><small>ENGINES</small></span></button>
-          <button class="destination" data-go="elevator" aria-pressed="false"><svg><use href="#i-elevator"/></svg><span><b>太空电梯</b><small>ELEVATOR</small></span></button>
-          <button class="destination" data-go="station" aria-pressed="false"><svg><use href="#i-station"/></svg><span><b>轨道空间站</b><small>STATION</small></span></button>
+        <div class="explore-caption">
+          <div><p id="hero-en">THE EARTH MIGRATION PROJECT</p><h1 id="hero-title">地球全景</h1></div>
+          <div class="orbit-shortcuts">
+            <button class="destination" data-go="elevator" aria-label="太空电梯" aria-pressed="false"><span>太空电梯</span></button>
+            <button class="destination" data-go="station" aria-label="轨道空间站" aria-pressed="false"><span>空间站</span></button>
+            <button id="show-info" class="outline-btn" aria-controls="info-panel" aria-expanded="false" aria-label="目标档案"><svg aria-hidden="true"><use href="#i-info"/></svg><span>档案</span></button>
+            <button id="telemetry-toggle" class="film-hud-toggle" aria-expanded="false" aria-controls="hud" aria-label="切换航行遥测">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16V8m4 10V6m4 8v-4m4 7V7m4 8V9"/></svg><span id="telemetry-label">展开遥测</span>
+            </button>
+          </div>
+        </div>
+        <nav class="destinations scale-route" aria-label="沿航线切换观测尺度">
+          <button class="destination" data-go="engine" aria-pressed="false"><span>行星发动机</span></button>
+          <button class="destination" data-go="earth" aria-pressed="true"><span>地球</span></button>
+          <button class="destination" data-go="solar" aria-pressed="false"><span>太阳系</span></button>
+          <button class="destination" data-go="galaxy" aria-pressed="false"><span>银河</span></button>
         </nav>
       </section>
     </div>
 
     <footer class="statusline flex items-center justify-between"><div><i></i><span id="render-state">实时模拟</span><span class="status-slash">/</span><span id="view-code">UEG 2061</span></div>
-      <div class="hint"><span class="mouse-hint">拖动环视 · 对准目标向上滚动进入 · 向下滚动返回</span><span class="touch-hint">单指环视 · 点选目标 · 双指张开进入、合拢返回</span></div></footer>
+      <div class="hint"><span class="mouse-hint">拖动环视 · 滚轮推近 / 拉远</span><span class="touch-hint">单指环视 · 双指张开推近、合拢拉远</span></div></footer>
 
     <aside id="info-panel" class="archive-sheet" role="dialog" aria-labelledby="info-title" hidden>
       <div class="archive-top flex items-center justify-between"><button id="info-handle" class="drag-handle flex items-center" title="拖动面板，或使用方向键移动" aria-label="移动档案面板，可用方向键移动"><svg><use href="#i-grip"/></svg>观测档案</button><button id="info-close" class="icon-btn" title="关闭档案" aria-label="关闭目标档案"><svg><use href="#i-close"/></svg></button></div>
@@ -174,7 +184,7 @@
     </section>
     <div class="sr-only" id="announce" role="status" aria-live="polite"></div>
     <aside id="music-panel" aria-labelledby="music-title" hidden>
-      <div class="music-head"><div><h2 id="music-title">开启新征程</h2><p>阿鲲 ·《流浪地球》电影原声</p></div><button id="music-close" class="icon-btn" aria-label="收起原声播放器"><svg><use href="#i-close"/></svg></button></div>
+      <div class="music-head"><div><h2 id="music-title">开启新征程</h2><p>阿鲲 ·《流浪地球》电影原声</p></div><button id="music-close" class="icon-btn" aria-label="收起原声播放器" title="收起播放器，继续听"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>
       <div id="music-service"></div>
       <div class="music-links"><a href="https://music.163.com/song?id=1343461538" target="_blank" rel="noopener noreferrer">网易云单曲 ↗</a><a href="https://www.douyin.com/music/7579192127771985963" target="_blank" rel="noopener noreferrer">原视频剪辑版 ↗</a><button id="music-stop" type="button">关闭音乐</button></div>
       <details id="music-local"><summary>用本机音源同步电影</summary>

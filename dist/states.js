@@ -9,6 +9,17 @@ export function ignitionDemand(seconds) {
   return p * p * p * (p * (p * 6 - 15) + 10);
 }
 
+export const departureCue = 98;
+export const cosmicStart = 108;
+export const cosmicDuration = 30;
+
+// Distance in the two far-scale stops is interpolated continuously, including
+// at the solar-system chapter boundary. This also works when scrubbing.
+export function cosmicScale(seconds) {
+  const t = Math.max(0, Math.min(1, (seconds - cosmicStart) / cosmicDuration));
+  return 2 * t * t * (3 - 2 * t);
+}
+
 // Quiet gaps between transmissions give the audience time to read the picture.
 // Cue times are local to each chapter; a seek restores the appropriate line.
 export const subtitleCues = [
@@ -36,6 +47,14 @@ export const subtitleCues = [
   [
     [1.0, 6.4, '木星留在了身后。前方那颗红色光点，就是比邻星。'],
     [8.5, 12.6, '这一班的航程结束了。下一班，继续。'],
+  ],
+  [
+    [3.2, 8.5, '推进束渐远。太阳和行星仍沿各自的轨道运行。'],
+    [10.1, 14.2, '这就是我们离开的地方。'],
+  ],
+  [
+    [1.5, 6.7, '再往外看，太阳只是猎户臂上的一颗星。'],
+    [9.2, 13.8, '地球依然沿着那条小得几乎看不见的航线前行。'],
   ],
 ];
 
@@ -84,6 +103,20 @@ export const chapters = [
     target: '比邻星',
     copy: '前方那颗红色光点，就是比邻星。四点二四光年的路，要用一百代人的时间走完。',
   },
+  {
+    title: '离开太阳系',
+    en: 'BEYOND THE PLANETS',
+    length: cosmicDuration / 2,
+    target: '太阳系',
+    copy: '地球的尾迹缩成一点。围绕太阳的轨道仍在我们身后。',
+  },
+  {
+    title: '银河远景',
+    en: 'THE MILKY WAY',
+    length: cosmicDuration / 2,
+    target: '银河系',
+    copy: '太阳在猎户臂上只占一个光点。地球仍在向邻近的恒星前进。',
+  },
 ];
 // Each vector is [thrust %, heliocentric orbital speed km/s, distance AU,
 // rotation degrees/hour, climber altitude km, signal travel seconds].
@@ -95,6 +128,8 @@ export const telemetry = [
   [93.8, 33.91, 1.092, 0, 35786, 0.24],
   [99.2, 46.72, 5.31, 0, 35786, 41],
   [96.5, 49.81, 39.86, 0, 35786, 133790000],
+  [96.5, 49.81, 82.3, 0, 35786, 133790000],
+  [96.5, 49.81, 82.3, 0, 35786, 133790000],
 ];
 export const dossiers = {
   earth: {
@@ -136,5 +171,17 @@ export const dossiers = {
       ['主体结构', '旋转居住环'],
       ['对接方式', '轴向交会'],
     ],
+  },
+  solar: {
+    title: '太阳系',
+    en: 'SOL / PLANETARY ORBITS',
+    copy: '地球曾绕太阳公转。镜头拉远后，近邻行星与外太阳系的轨道逐次入画。示意尺寸经过压缩，用于在同一视野里辨认轨道。',
+    rows: [['中心天体', '太阳'], ['主要行星', '8 颗'], ['地球平均轨道距离', '1 AU']],
+  },
+  galaxy: {
+    title: '银河系',
+    en: 'THE MILKY WAY',
+    copy: '从银盘上方看，恒星和尘埃沿旋臂分布。太阳位于猎户臂，离银心约二万七千光年。',
+    rows: [['类型', '棒旋星系'], ['恒星盘直径', '约 10 万光年'], ['太阳所在位置', '猎户臂']],
   },
 };
