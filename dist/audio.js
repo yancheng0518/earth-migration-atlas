@@ -13,10 +13,8 @@ export function createSoundtrack(button, status) {
   let attempt = null, lastCorrection = -Infinity;
 
   function updateButton() {
-    const action = enabled ? '静音' : '开启声音';
-    label.textContent = action;
-    button.setAttribute('aria-label', action);
-    icon.setAttribute('href', enabled ? '#i-muted' : '#i-sound');
+    label.textContent = enabled ? '声音开启' : '已静音';
+    icon.setAttribute('href', enabled ? '#i-sound' : '#i-muted');
   }
 
   function mute() {
@@ -28,7 +26,7 @@ export function createSoundtrack(button, status) {
     updateButton();
   }
 
-  function streamUnavailable(message = '网易云音源暂不可用，请点「开启声音」重试。') {
+  function streamUnavailable(message = '网易云音源暂不可用，请再点声音按钮重试。') {
     if (!enabled) return;
     enabled = false;
     music.pause();
@@ -40,7 +38,7 @@ export function createSoundtrack(button, status) {
     if (attempt) return attempt;
     const pending = music.play().then(() => enabled && attempt === pending).catch(error => {
       if (attempt !== pending || error.name === 'AbortError') return false;
-      streamUnavailable(error.name === 'NotAllowedError' ? '请点「开启声音」继续。' : undefined);
+      streamUnavailable(error.name === 'NotAllowedError' ? '请再点声音按钮继续。' : undefined);
       return false;
     }).finally(() => {
       if (attempt === pending) attempt = null;
