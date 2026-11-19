@@ -450,113 +450,156 @@ export function createJupiter() {
   );
 }
 
-// The nozzle plumes stay attached to the Earth. They spread into overlapping
-// sheets of turbulent exhaust, with thin, brighter filaments inside the flow.
+// Sample the wake by particle age. The same film time always produces the same
+// front, filaments and breakup, including after a backwards scrub.
 function propulsionWake() {
-  const positions = [],
-    origins = [],
-    profile = [],
-    indices = [];
-  const random = seeded(91105),
-    length = { value: 8 },
-    rPlanet = { value: 0.9 },
-    time = { value: 0 };
-  const nozzles = 35, count = nozzles + 13, slices = 42;
-  for (let i = 0; i < count; i++) {
-    const broad = i >= nozzles;
-    const a = i * 2.399963,
-      r = Math.sqrt(((i % nozzles) + 0.5) / nozzles) * (broad ? 0.70 : 0.87);
-    const x = r * Math.cos(a),
-      z = r * Math.sin(a),
-      seed = random() * 16;
-    const width = broad ? 0.19 + random() * 0.30 : 0.027 + random() * 0.033;
-    const strength = broad ? 0.025 + random() * 0.032 : 0.23 + random() * 0.18;
-    const extent = broad ? 0.68 + random() * 0.32 : 0.36 + random() * 0.55;
-    const first = positions.length / 3;
-    for (let iStep = 0; iStep <= slices; iStep++) {
-      for (const side of [-1, 1]) {
-        positions.push(side, iStep / slices, 0);
-        origins.push(x, z, seed, extent);
-        profile.push(width, strength, broad ? 1 : 0);
+  const positions = [], origins = [], parameters = [], profiles = [], triangles = [];
+  const random = seeded(91105);
+  const banks = [97.16, 97.51, 97.77, 98.0, 98.31, 98.63];
+  const nozzleCount = 30;
+  const slices = 45;
+
+  function ribbon(x, z, rank, ignition, width, span, strength, phase) {
+    const start = positions.length / 3;
+    for (let row = 0; row <= slices; row++) {
+      for (const edge of [-1, 1]) {
+        positions.push(edge, row / slices, 0);
+        origins.push(x, z, phase, ignition);
+        parameters.push(width, span, strength);
+        profiles.push(rank);
       }
-      if (iStep < slices) {
-        const k = first + iStep * 2;
-        indices.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
-      }
+      if (row === slices) continue;
+      const k = start + row * 2;
+      triangles.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
     }
   }
+
+  // Spread each bank around the hemisphere. The rim array remains legible as
+  // several separate bright roots before the wider sheets begin to mix.
+  for (let i = 0; i < nozzleCount; i++) {
+    const angle = i * 2.399963;
+    const radius = Math.sqrt((i + 0.5) / nozzleCount) * .88;
+    const x = radius * Math.cos(angle);
+    const z = radius * Math.sin(angle);
+    const phase = random() * 29;
+    const ignition = banks[i % banks.length] + random() * .10;
+    const thrust = .69 + .31 * random();
+    ribbon(x, z, 0, ignition, .041 + random() * .017, .028 + random() * .022, thrust, phase);
+    ribbon(x, z, 1, ignition, .065 + random() * .05, .47 + random() * .48, thrust, phase);
+    if (i % 2 === 0)
+      ribbon(x, z, 2, ignition, .27 + random() * .41, .78 + random() * .22, thrust, phase + 48.7);
+  }
+
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('origin', new THREE.Float32BufferAttribute(origins, 4));
-  geometry.setAttribute('profile', new THREE.Float32BufferAttribute(profile, 3));
-  geometry.setIndex(indices);
+  geometry.setAttribute('parameters', new THREE.Float32BufferAttribute(parameters, 3));
+  geometry.setAttribute('profile', new THREE.Float32BufferAttribute(profiles, 1));
+  geometry.setIndex(triangles);
+  const uniforms = {
+    wakeLength: { value: 8 }, rPlanet: { value: .9 }, time: { value: 0 }, wakePower: { value: 0 },
+  };
   const material = new THREE.ShaderMaterial({
-    uniforms: { wakeLength: length, rPlanet, time, wakePower: { value: 0 } },
+    uniforms,
     transparent: true,
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
     depthWrite: false,
     vertexShader: `
-      attribute vec4 origin; attribute vec3 profile;
-      varying vec4 sampleAt; varying float broad;
-      uniform float rPlanet,wakeLength,time;
-      void main(){
-        float s=position.x, u=position.y;
-        vec3 center=vec3(origin.x,-sqrt(1.-dot(origin.xy,origin.xy)),origin.y)*rPlanet;
-        center.y-=u*wakeLength*origin.w;
-        float opening=pow(u,1.35);
-        float flow=u*16.-time*3.8;
-        center.xz+=origin.xy*rPlanet*(.11*u+1.4*opening);
-        vec2 eddy=vec2(sin(flow+origin.z),cos(flow*.83+origin.z*.76));
-        eddy+=.28*vec2(cos(flow*2.5-origin.z),sin(flow*2.9+origin.z));
-        center.xz+=eddy*(.024*u+mix(.26,.72,profile.z)*opening)*rPlanet;
-        vec3 c=(modelMatrix*vec4(center,1.)).xyz;
-        vec3 direction=normalize(mat3(modelMatrix)*vec3(0.,-1.,0.));
-        vec3 eye=normalize(cameraPosition-c);
-        vec3 widthAxis=cross(direction,eye);
-        if (dot(widthAxis,widthAxis)<1.e-7) widthAxis=cross(direction,vec3(1.,.2,.07));
-        widthAxis=normalize(widthAxis);
-        float roll=.60*sin(flow*.67+origin.z)*opening;
-        widthAxis=normalize(widthAxis*cos(roll)+cross(direction,widthAxis)*sin(roll));
-        float w=rPlanet*(profile.x*(.65+u*.55)+mix(.40,.96,profile.z)*opening);
-        w*=1.+.26*sin(flow*1.25+origin.z)*smoothstep(.05,.57,u);
-        c+=s*widthAxis*w*length(modelMatrix[0].xyz);
-        gl_Position=projectionMatrix*viewMatrix*vec4(c,1.);
-        sampleAt=vec4(s,u,origin.z,profile.y); broad=profile.z;
+      attribute vec4 origin;
+      attribute vec3 parameters;
+      attribute float profile;
+      uniform float rPlanet, wakeLength, time;
+      varying vec4 sampleAt;
+      varying vec3 volume;
+      void main() {
+        float rank=profile;
+        float x=position.x, u=position.y;
+        float age=time-origin.w;
+        float spread=u*wakeLength*parameters.y;
+        float hot=1.-step(.5,rank);
+        float mist=step(1.5,rank);
+        float speed=mix(4.6,5.7,parameters.z);
+        float parcel=age-spread/speed;
+        vec3 root=vec3(origin.x,-sqrt(1.-dot(origin.xy,origin.xy)),origin.y)*1.013;
+        vec3 center=root;
+        center.y-=spread;
+        // Root stays pinned. Old parcels curl outward and advect downstream
+        // instead of resembling sine waves sliding sideways across the ship.
+        float loose=smoothstep(.18,2.85,spread);
+        float whirl=parcel*5.1+origin.z;
+        vec2 curl=vec2(sin(whirl+sin(parcel*7.3-origin.z)),cos(whirl*.83+origin.z*.59));
+        curl+=.42*vec2(cos(parcel*13.8+origin.z*.66),sin(parcel*12.7-origin.z));
+        center.xz+=(origin.xy*(.064*spread+.093*spread*loose)
+          +curl*mix(.28,.67,mist)*loose*pow(u,.55))*(1.-hot*.89);
+        vec3 point=(modelMatrix*vec4(center*rPlanet,1.)).xyz;
+        vec3 axis=normalize(mat3(modelMatrix)*vec3(0.,-1.,0.));
+        vec3 eye=normalize(cameraPosition-point);
+        vec3 crossAxis=cross(axis,eye);
+        if (dot(crossAxis,crossAxis)<1.e-7) crossAxis=cross(axis,vec3(1.,.2,.07));
+        crossAxis=normalize(crossAxis);
+        float roll=loose*(.68*sin(parcel*4.+origin.z)+mist*.64);
+        crossAxis=crossAxis*cos(roll)+cross(axis,crossAxis)*sin(roll);
+        float opening=u*u;
+        float width=parameters.x*(1.+.85*u)+loose*mix(.25,.64,mist)*opening;
+        width*=1.+.31*sin(parcel*6.6+origin.z)*loose;
+        point+=crossAxis*x*width*rPlanet*length(modelMatrix[0].xyz);
+        gl_Position=projectionMatrix*viewMatrix*vec4(point,1.);
+        sampleAt=vec4(x,u,parcel,origin.z);
+        volume=vec3(rank,parameters.z,spread);
       }`,
     fragmentShader: `
-      varying vec4 sampleAt; varying float broad;uniform float time,wakePower;
-
-      float hash(vec2 p){
+      varying vec4 sampleAt;
+      varying vec3 volume;
+      uniform float wakePower, time;
+      float hash(vec2 p) {
         vec3 q=fract(vec3(p.xyx)*.1031);
         q+=dot(q,q.yzx+33.33);
         return fract((q.x+q.y)*q.z);
       }
-      float noise(vec2 p){
+      float noise(vec2 p) {
         vec2 cell=floor(p), f=fract(p);
         f=f*f*(3.-2.*f);
         return mix(mix(hash(cell),hash(cell+vec2(1.,0.)),f.x),
           mix(hash(cell+vec2(0.,1.)),hash(cell+1.),f.x),f.y);
       }
-      void main(){
-        float s=sampleAt.x,u=sampleAt.y;
-        float travel=u*25.-time*6.8+sampleAt.z;
-        float roll=noise(vec2(s*2.3+sampleAt.z,travel*.68));
-        float fine=noise(vec2(s*7.9-roll*1.4,travel*1.85));
-        float tangle=noise(vec2(s*3.1+fine,travel*.94+12.));
-        float ragged=s+(roll-.5)*.56*smoothstep(.015,.44,u);
-        float gas=exp(-ragged*ragged*3.1)*smoothstep(.05,.83,.55*roll+.29*fine+.36*tangle);
-        gas*=1.-smoothstep(.62,.995,abs(s));
-        float rib=sin(travel*1.9+s*5.7+roll*9.);
-        gas*=.59+.53*pow(.5+.5*rib,2.);
-        float throat=exp(-ragged*ragged*14.)*exp(-u*13.)*(1.-broad);
-        float falloff=pow(1.-u,mix(1.37,.84,broad))*(1.-smoothstep(.77,1.,u));
-        vec3 hot=vec3(.53,1.23,2.95);
-        vec3 cold=mix(vec3(.065,.37,1.18),vec3(.35,.076,.73),tangle);
-        vec3 rim=vec3(.92,.18,.054)*smoothstep(.56,.94,fine)*smoothstep(.16,.72,abs(s));
-        vec3 tint=mix(cold,hot,exp(-u*4.5)*(.28+.57*fine))+rim;
-        vec3 emission=(tint*gas*falloff+hot*throat*.57)*sampleAt.w*wakePower;
-        gl_FragColor=vec4(emission,1.);
+      void main() {
+        float s=sampleAt.x,u=sampleAt.y,parcel=sampleAt.z,phase=sampleAt.w;
+        float spread=volume.z;
+        float arrival=smoothstep(0.,.29,parcel);
+        if (arrival<.001) discard;
+        float pressure=.83+.17*sin(phase+parcel*15.);
+        float roll=noise(vec2(s*2.3+phase,parcel*3.9));
+        float shear=noise(vec2(s*7.5-roll*1.8,parcel*12.4+phase*.31));
+        float pocket=noise(vec2(s*3.15+shear,parcel*6.1+phase*.63));
+        float radial=s+(roll-.5)*.72*smoothstep(.16,1.5,spread);
+        float edge=1.-smoothstep(.72,1.,abs(s));
+        vec3 color;
+        float strength;
+        if (volume.x<.5) {
+          // Short shocks keep an intense white center while retaining blue
+          // edges. No long, solid white line continues beyond the nozzle.
+          float shock=.78+.22*pow(.5+.5*sin(spread*31.-parcel*11.0),2.);
+          color=mix(vec3(.3,.87,1.8),vec3(2.34,2.96,3.56),exp(-radial*radial*8.));
+          strength=.68*exp(-radial*radial*4.9)*pow(1.-u,2.06)*shock;
+        } else if(volume.x<1.5) {
+          float crest=sin(parcel*18.0+s*8.8+roll*5.5);
+          float eddies=smoothstep(.33,.81,.42*roll+.44*shear+.27*pocket)*(.46+.54*pow(.5+.5*crest,2.));
+          float density=exp(-radial*radial*2.8)*eddies;
+          float violet=smoothstep(2.15,6.0,spread);
+          color=mix(vec3(.055,.76,1.78),vec3(.24,.17,1.03),violet);
+          strength=.65*density*pow(1.-u,1.45)*(1.-smoothstep(.67,1.,u))
+            *(.61+.39*smoothstep(.015,.75,spread));
+        } else {
+          float breakUp=mix(.37,.65,smoothstep(3.,7.5,spread));
+          float cloud=smoothstep(breakUp,.83,.34*roll+.44*pocket+.32*shear);
+          color=mix(vec3(.09,.27,.94),vec3(.43,.12,.87),pocket);
+          float farFade=1.-.56*smoothstep(104.,112.,time);
+          strength=.20*exp(-radial*radial*2.4)*cloud*farFade
+            *smoothstep(1.19,3.35,spread)*(1.-smoothstep(.47,.97,u));
+        }
+        float gain=strength*volume.y*pressure*edge*arrival*wakePower;
+        gl_FragColor=vec4(color*gain,1.);
         #include <colorspace_fragment>
       }`,
   });
@@ -564,10 +607,10 @@ function propulsionWake() {
   mesh.frustumCulled = false;
   return {
     mesh,
-    update(radius, extent, elapsed) {
-      rPlanet.value = radius;
-      length.value = extent;
-      time.value = elapsed;
+    update(radius, extent, seconds) {
+      uniforms.rPlanet.value = radius;
+      uniforms.wakeLength.value = extent;
+      uniforms.time.value = seconds;
     },
   };
 }
@@ -625,7 +668,7 @@ export function createProxima() {
       earth.scale.setScalar(size);
       wake.mesh.position.copy(earth.position);
       wake.mesh.quaternion.setFromUnitVectors(UP, direction);
-      wake.update(radius * size, 6.15 + 9.7 * travel, time);
+      wake.update(radius * size, 8.1 + 1.0 * travel, time);
       destination.update(time, 0.83 + 0.03 * Math.sin(time * 0.77));
     },
     earth,
@@ -633,6 +676,7 @@ export function createProxima() {
     destination.group,
     destination.group,
   );
+  shot.wakeDirection = direction;
   shot.setWake = (value) => {
     wake.mesh.material.uniforms.wakePower.value = value;
     wake.mesh.visible = value > 0.0001;

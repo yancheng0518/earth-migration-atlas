@@ -412,9 +412,9 @@ export function dockingPort(parent, position, reversed, radius, detail) {
   const housing = new THREE.Group();
   housing.scale.setScalar(radius);
   port.add(housing);
-  const hull = metal(0xb9c6cc),
-    shadow = metal(0x293442),
-    brass = metal(0xb68a49),
+  const hull = metal(0xaabac4, .46, .78),
+    shadow = metal(0x293442, .88, .17),
+    brass = metal(0x927c5c, .56, .71),
     graphite = metal(0x596977);
   const signal = glow(0x83d9ff, 1.65),
     marker = glow(0xffa961, 1.6);
@@ -430,12 +430,13 @@ export function dockingPort(parent, position, reversed, radius, detail) {
   disk(graphite, -0.014, 0.54, 0.029);
   for (let i = 0; i < 12; i++) {
     const a = (i * TAU) / 12;
+    // The clamps sit in black seals on load plates, behind the mating plane.
+    batch.put(box, shadow, circle(a, 1.03, -.156), vec(.266, .39, .071), [0, 0, a]);
     batch.put(box, i % 3 === 0 ? brass : hull, circle(a, 0.98, -0.032), vec(0.23, 0.31, 0.1), [0, 0, a]);
     batch.put(cylinder, shadow, circle(a, 0.96, 0.022), vec(0.041, 0.032, 0.041), [Math.PI / 2, 0, 0]);
     batch.put(box, i % 3 === 0 ? marker : signal, circle(a, 1.14, -0.3), vec(0.04, 0.127, 0.15), [0, 0, a]);
     if (i % 2 === 0) batch.put(box, brass, circle(a, 0.69, -0.002), vec(0.067, 0.18, 0.044), [0, 0, a]);
   }
-  batch.finish();
   const jaws = [];
   for (let i = 0; i < 3; i++) {
     const a = (i * TAU) / 3 + 0.38,
@@ -444,6 +445,7 @@ export function dockingPort(parent, position, reversed, radius, detail) {
     base.position.copy(circle(a, 1.17, -0.59));
     base.rotation.z = a;
     housing.add(base);
+    batch.put(box, shadow, circle(a, 1.17, -.557), vec(.27, .27, .17), [0, 0, a]);
     base.add(finger);
     const parts = assembly(finger);
     parts.put(box, graphite, vec(0, 0, 0.43), vec(0.17, 0.19, 0.9));
@@ -453,6 +455,7 @@ export function dockingPort(parent, position, reversed, radius, detail) {
     parts.finish();
     jaws.push(finger);
   }
+  batch.finish();
   detail?.part(housing, 2.4 * radius);
   port.userData.setEngagement = (value) => {
     for (const jaw of jaws) jaw.rotation.y = 0.43 - value * 0.79;
@@ -484,12 +487,13 @@ export function createStation({ shared = false } = {}) {
   const cone = new THREE.ConeGeometry(1, 1, 16);
   const white = metal(0xaeb9bc, .75, .28),
     faded = metal(0x7f919b, .69, .48);
-  const light = metal(0xc0c6c0, .62, .43),
+  const light = metal(0xc0c6c0, .48, .72),
     gold = metal(0x8f7855, .58, .53);
   const iron = metal(0x46535e, .56, .62),
     dark = metal(0x151e29, .78, .24),
     gasket = metal(0x121718, .95, .03),
-    oxidized = metal(0x894c3b, .72, .43);
+    oxidized = metal(0x894c3b, .72, .43),
+    insulation = metal(0x736d60, .93, .09);
   const { map, surface } = hullFinish();
   for (const material of [white, faded, light, gold, iron]) {
     material.map = map;
@@ -497,6 +501,8 @@ export function createStation({ shared = false } = {}) {
     material.roughnessMap = surface;
     material.bumpScale = .006;
   }
+  insulation.bumpMap = surface;
+  insulation.bumpScale = .010;
   const goldLight = pressureGlass(0x9b7c56, 0xffba79, .47),
     warm = pressureGlass(0xc0c4b5, 0xffe6b8, .63),
     litRoom = pressureGlass(0xa6aba1, 0xffddb1, 1.04),
@@ -542,7 +548,9 @@ export function createStation({ shared = false } = {}) {
     const a = i * span,
       rot = [0, 0, a];
     hull.put(core, i % 7 === 1 ? light : i % 4 === 0 ? faded : white, origin, scale, rot);
-    hull.put(cap, i % 7 === 0 ? iron : faded, vec(0, 0, 0.219), scale, rot);
+    // Groups of thermal bays share a blanket finish, maintenance bays expose alloy.
+    const thermalBay = i % 12 >= 7 && i % 12 <= 9;
+    hull.put(cap, thermalBay ? insulation : i % 7 === 0 ? iron : faded, vec(0, 0, 0.219), scale, rot);
     hull.put(outerBelt, dark, vec(0, 0, 0.014), scale, rot);
     hull.put(edge, faded, origin, scale, rot);
     hull.put(accessHatch, i % 6 === 2 ? oxidized : light, vec(0, 0, 0.261), scale, rot);
@@ -666,7 +674,8 @@ export function createStation({ shared = false } = {}) {
     brace(bus, circle(a, 0.358, -1.65), circle(a, 0.358, -1.3), 0.028, gold);
     if (i % 2 === 0) {
       const mount = circle(a, 0.38, 0.79);
-      block(bus, faded, mount, vec(0.14, 0.13, 0.35), a);
+      block(bus, gasket, circle(a, .362, .788), vec(.158, .151, .392), a);
+      block(bus, i % 4 === 0 ? faded : insulation, mount, vec(0.14, 0.13, 0.35), a);
       block(bus, dark, circle(a, 0.455, 0.8), vec(0.034, 0.1, 0.24), a);
       for (let j = 0; j < 4; j++) {
         block(bus, light, circle(a, 0.48, 0.7 + j * 0.056), vec(0.024, 0.094, 0.013), a);

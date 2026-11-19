@@ -39,6 +39,11 @@ const geometries = {
   bell: new THREE.CylinderGeometry(0.67, 1, 1, 12),
 };
 const steel = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.36, roughness: 0.61 });
+const alloy = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: .77, roughness: .44 });
+const blanket = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: .08, roughness: .91 });
+const glass = new THREE.MeshPhysicalMaterial({
+  color: 0xffffff, metalness: .05, roughness: .2, clearcoat: .67, clearcoatRoughness: .21,
+});
 const light = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.5, 1.5, 1.5) });
 const ivory = 0xc4c4b9,
   steelBlue = 0x758493,
@@ -154,9 +159,9 @@ function vessel(kind, scale, callsign) {
   if (!steel.map) steel.map = paintwork();
   let decals = [];
   const visualRadius = kind === 'tug' ? 0.74 : 1.53;
-  function part(form, color, x, y, z, w, h, d, rotation, illuminated = false) {
-    const key = form + (illuminated ? ' glow' : '');
-    if (!batches.has(key)) batches.set(key, { form, illuminated, items: [] });
+  function part(form, color, x, y, z, w, h, d, rotation, material = steel) {
+    const key = `${form}:${material.id}`;
+    if (!batches.has(key)) batches.set(key, { form, material, items: [] });
     tmpMatrix.position.set(x, y, z);
     tmpMatrix.scale.set(w, h, d);
     if (rotation?.isQuaternion) tmpMatrix.quaternion.copy(rotation);
@@ -164,10 +169,10 @@ function vessel(kind, scale, callsign) {
     tmpMatrix.updateMatrix();
     batches.get(key).items.push({ matrix: tmpMatrix.matrix.clone(), color, width: [w, h, d].sort((a, b) => a - b)[1] });
   }
-  const box = (c, x, y, z, w, h, d, r) => part('box', c, x, y, z, w, h, d, r);
-  const tube = (c, x, y, z, r, length) => part('tube', c, x, y, z, r, length, r, bodyAlign);
+  const box = (c, x, y, z, w, h, d, r, m) => part('box', c, x, y, z, w, h, d, r, m);
+  const tube = (c, x, y, z, r, length, m) => part('tube', c, x, y, z, r, length, r, bodyAlign, m);
   const ball = (c, x, y, z, w, h, d) => part('sphere', c, x, y, z, w, h, d);
-  const lamp = (c, x, y, z, w, h, d) => part('box', c, x, y, z, w, h, d, null, true);
+  const lamp = (c, x, y, z, w, h, d) => part('box', c, x, y, z, w, h, d, null, light);
   function rod(c, a, b, r) {
     const d = b.clone().sub(a),
       mid = a.clone().lerp(b, 0.5);
@@ -176,8 +181,8 @@ function vessel(kind, scale, callsign) {
   function engine(x, y, z, r) {
     tube(graphite, x, y, z + 0.18, r * 1.08, 0.32);
     tube(orange, x, y, z + 0.075, r * 1.16, 0.051);
-    part('bell', steelBlue, x, y, z - 0.064, r, 0.19, r, bodyAlign);
-    part('tube', engineBlue, x, y, z - 0.158, r * 0.78, 0.015, r * 0.78, bodyAlign, true);
+    part('bell', steelBlue, x, y, z - 0.064, r, 0.19, r, bodyAlign, alloy);
+    part('tube', engineBlue, x, y, z - 0.158, r * 0.78, 0.015, r * 0.78, bodyAlign, light);
     engines.push([x, y, z - 0.16, r]);
   }
   let nose;
@@ -185,11 +190,15 @@ function vessel(kind, scale, callsign) {
     nose = 1.45;
     box(ivory, 0, 0, 1.005, 0.81, 0.51, 0.51);
     box(graphite, 0, 0.125, 1.26, 0.63, 0.14, 0.05);
-    for (let j = 0; j < 4; j++) lamp(0xa0eaff, (j - 1.5) * 0.13, 0.155, 1.294, 0.085, 0.048, 0.026);
+    for (let j = 0; j < 4; j++) {
+      const x = (j - 1.5) * .13;
+      box(0x334e5d, x, .155, 1.294, .089, .059, .026, null, glass);
+      if (j > 1) lamp(0x5c9db5, x, .169, 1.308, .052, .009, .009);
+    }
     box(steelBlue, 0, -0.25, 0.91, 0.72, 0.15, 0.45);
     box(graphite, 0, 0.045, -0.18, 0.52, 0.43, 2.26);
     for (const side of [-1, 1]) {
-      tube(steelBlue, side * 0.164, 0.292, -0.023, 0.069, 0.94);
+      tube(steelBlue, side * 0.164, 0.292, -0.023, 0.069, 0.94, alloy);
       for (let j = 0; j < 6; j++) tube(j % 3 ? graphite : paint, side * 0.164, 0.292, 0.42 - j * 0.168, 0.076, 0.034);
       box(ivory, side * 0.29, 0.065, 0.682, 0.143, 0.26, 0.28, [0, side * 0.1, 0]);
       for (let j = 0; j < 3; j++) box(black, side * 0.406, 0.119, 1.15 - j * 0.104, 0.022, 0.099, 0.075);
@@ -203,14 +212,16 @@ function vessel(kind, scale, callsign) {
       for (const side of [-1, 1]) {
         const z = 0.36 - j * 0.57,
           x = side * 0.49;
-        box(j === 1 ? paint : ivory, x, 0, z, 0.37, 0.51, 0.51);
+        box(j === 1 ? paint : ivory, x, 0, z, 0.37, 0.51, 0.51, null, j === 1 ? blanket : steel);
         for (const dz of [-0.205, 0.205]) {
           box(graphite, x, 0, z + dz, 0.389, 0.544, 0.055);
           box(orange, x, 0.274, z + dz, 0.33, 0.04, 0.071);
         }
         for (let k = 0; k < 5; k++)
           box(j === 1 ? graphite : steelBlue, x + side * 0.187, -0.024, z + (k - 2) * 0.066, 0.021, 0.27, 0.019);
-        box(steelBlue, x, 0.259, z, 0.26, 0.04, 0.24);
+        box(black, x, .259, z, .282, .026, .26, null, blanket);
+        box(steelBlue, x, .275, z, .26, .020, .24, null, alloy);
+        for (const offset of [-.101, .101]) box(ivory, x + offset, .288, z, .02, .009, .14);
         box(orange, x + side * 0.19, 0.156, z + 0.06, 0.025, 0.05, 0.13);
       }
     for (const side of [-1, 1]) {
@@ -278,9 +289,9 @@ function vessel(kind, scale, callsign) {
       0.029,
       0.052,
     );
-  for (const { form, illuminated, items } of batches.values()) {
+  for (const { form, material, items } of batches.values()) {
     items.sort((a, b) => b.width - a.width);
-    const mesh = new THREE.InstancedMesh(geometries[form], illuminated ? light : steel, items.length);
+    const mesh = new THREE.InstancedMesh(geometries[form], material, items.length);
     for (let i = 0; i < items.length; i++) {
       mesh.setMatrixAt(i, items[i].matrix);
       mesh.setColorAt(i, col.setHex(items[i].color));
@@ -479,7 +490,7 @@ export function createTraffic({ earth, elevator, station }) {
     lane = V(),
     tugNext = V();
   const state = { phase: 'berthed', from: 'elevator', to: 'station', progress: 0 };
-  function transfer(craft, berth, time, flightDirection, altitude, camera, height) {
+  function transfer(craft, berth, time, flightDirection, altitude) {
     const [outbound, f, status] = timetable(time);
     const from = outbound ? 'elevator' : 'station',
       to = outbound ? 'station' : 'elevator';
@@ -499,8 +510,8 @@ export function createTraffic({ earth, elevator, station }) {
     arc(a.clear, b.clear, cruise + 0.001, altitude, after);
     forward.subVectors(after, before).normalize();
     attitude(craft, a, b, f, forward, altitude);
-    const power = status === 'berthed' ? 0 : 0.1 + 0.88 * smooth((f - 0.13) / 0.12) * (1 - smooth((f - 0.69) / 0.17));
-    craft.appearance(power, time, camera, height);
+    craft.power = status === 'berthed' ? 0 : 0.1 + 0.88 * smooth((f - 0.13) / 0.12) * (1 - smooth((f - 0.69) / 0.17));
+    craft.appearanceTime = time;
     function engage(model, which, amount) {
       model.ports[which].userData.setEngagement(amount);
     }
@@ -560,7 +571,7 @@ export function createTraffic({ earth, elevator, station }) {
     orient(tug.ship, bearing);
     return join;
   }
-  function update(time, camera, height = typeof innerHeight === 'number' ? innerHeight : 900) {
+  function update(time) {
     for (const [id, facility] of [
       ['elevator', elevator],
       ['station', station],
@@ -568,15 +579,16 @@ export function createTraffic({ earth, elevator, station }) {
       for (const berth of ['primary', 'service'])
         readPort(facility.ports[berth], ports[id + berth], id === 'station' ? 0.346 : 0.282);
     }
-    const mainProgress = transfer(main, 'primary', time, heroDir, 0.47, camera, height);
-    const f = transfer(fuel, 'service', time + 10.3, tankerDir, 0.69, camera, height);
+    const mainProgress = transfer(main, 'primary', time, heroDir, 0.47);
+    const f = transfer(fuel, 'service', time + 10.3, tankerDir, 0.69);
     for (let i = 0; i < 3; i++) {
       const tug = escorts[i],
         p = [ports.stationprimary, ports.stationservice, ports.elevatorprimary][i];
       holdingPosition(p, time, i, tug.ship.position);
       holdingPosition(p, time + 0.06, i, tugNext);
       orient(tug.ship, tugNext.sub(tug.ship.position).normalize());
-      tug.appearance(0.23, time + i, camera, height);
+      tug.power = 0.23;
+      tug.appearanceTime = time + i;
     }
     const wing = escorts[3],
       source = ports[(timetable(time + 10.3)[0] ? 'elevator' : 'station') + 'service'];
@@ -589,12 +601,14 @@ export function createTraffic({ earth, elevator, station }) {
     after.copy(fuel.ship.position).addScaledVector(lane, 0.081).addScaledVector(tankerDir, -0.15);
     wing.ship.position.lerp(after, join);
     orient(wing.ship, tankerDir);
-    wing.appearance(0.23 + join * 0.39, time + 4, camera, height);
+    wing.power = 0.23 + join * 0.39;
+    wing.appearanceTime = time + 4;
     const mainSource = ports[state.from + 'primary'],
       mainDestination = ports[state.to + 'primary'];
     for (let i = 0; i < 2; i++) {
       const joining = escortPosition(i, time, mainProgress, mainSource, mainDestination);
-      escorts[i + 4].appearance(0.2 + 0.53 * joining, time + i * 2.5, camera, height);
+      escorts[i + 4].power = 0.2 + 0.53 * joining;
+      escorts[i + 4].appearanceTime = time + i * 2.5;
     }
     // Tenders have lower right-of-way than docked and transferring tonnage.
     // Preserve a positive hull clearance even when moving port frames cross a holding lane.
@@ -612,6 +626,11 @@ export function createTraffic({ earth, elevator, station }) {
         }
     }
   }
+  // Ship positions can guide the shot. Choose LOD only once that shot's
+  // camera is in place, so the prior frame cannot affect a paused seek.
+  function updateAppearance(camera, height) {
+    for (const vessel of vessels) vessel.appearance(vessel.power, vessel.appearanceTime, camera, height);
+  }
   update(0);
   return {
     group,
@@ -619,6 +638,7 @@ export function createTraffic({ earth, elevator, station }) {
     vessels: vessels.map((v) => v.ship),
     state,
     update,
+    updateAppearance,
     getHeroPose(position, direction) {
       position.copy(main.ship.position);
       direction.copy(heroDir);

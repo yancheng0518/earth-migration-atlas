@@ -242,6 +242,13 @@ function groundShadows() {
   ctx.scale(1024 / 384, 1024 / 384);
   const texture = new THREE.CanvasTexture(canvas);
   texture.flipY = false;
+  const contacts = document.createElement('canvas');
+  contacts.width = contacts.height = 512;
+  const near = contacts.getContext('2d');
+  near.translate(256, 256);
+  near.scale(512 / 96, 512 / 96);
+  const contactMap = new THREE.CanvasTexture(contacts);
+  contactMap.flipY = false;
   const spill = document.createElement('canvas');
   spill.width = 512;
   spill.height = 512;
@@ -266,6 +273,7 @@ function groundShadows() {
   return {
     texture,
     spillMap,
+    contactMap,
     tower(x, z, s) {
       oval(x + 12 * s, z + 8 * s, 35 * s, 11.6 * s, 0.59, 0.54, 0.36);
       oval(x + 2 * s, z + 1.3 * s, 18 * s, 15.2 * s, 0.59, 0.99, 0.84);
@@ -273,6 +281,9 @@ function groundShadows() {
     },
     block(x, z, w, d, h, a) {
       oval(x + h * 0.8, z + h * 0.5, w * 0.75 + h * 0.72, d * 0.73 + h * 0.48, -a, 0.84, 0.57);
+    },
+    contact(x, z, w, d, a) {
+      oval(x, z, w, d, -a, 0.94, 0.60, near);
     },
   };
 }
@@ -327,13 +338,18 @@ function landscape(group, random, groundMaps, uniforms, shared) {
   for (let i = 0; i < points.count; i++) points.setY(i, surfaceHeight(points.getX(i), points.getZ(i), shared));
   points.needsUpdate = true;
   const groundMaterial = new THREE.ShaderMaterial({
-    uniforms: { ...uniforms, groundOcclusion: { value: groundMaps.texture }, spillMap: { value: groundMaps.spillMap } },
+    uniforms: {
+      ...uniforms,
+      groundOcclusion: { value: groundMaps.texture },
+      contactMap: { value: groundMaps.contactMap },
+      spillMap: { value: groundMaps.spillMap },
+    },
     transparent: shared,
     depthWrite: !shared,
     vertexShader:
       'varying vec3 p;void main(){p=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
     fragmentShader: [
-      'varying vec3 p;uniform sampler2D groundOcclusion,spillMap;uniform float ignition,proximity,weatherTime;',
+      'varying vec3 p;uniform sampler2D groundOcclusion,contactMap,spillMap;uniform float ignition,proximity,weatherTime;',
       noiseGLSL,
       firingGLSL,
       'void main(){vec2 g=p.xz;float rocks=noise21(g*.24)+.48*noise21(g*.61)+.15*noise21(g*2.2);',
@@ -349,7 +365,8 @@ function landscape(group, random, groundMaps, uniforms, shared) {
       'road*=1.-.22*rubber;float edge=1.-smoothstep(.017,.083,abs(abs(lane)-2.20));',
       'float dash=(1.-smoothstep(.04,.10,abs(lane-1.72)))*step(.51,fract((g.x+g.y)*.22));',
       'road=mix(road,vec3(.41,.34,.20),(edge*.60+dash*.69)*smoothstep(.17,.48,rocks));col=mix(col,road,roadway);',
-      'float occlusion=texture2D(groundOcclusion,g/384.+.5).a; col*=mix(vec3(1.0),vec3(.14,.20,.30),occlusion);',
+      'float occlusion=texture2D(groundOcclusion,g/384.+.5).a;',
+      'float contact=texture2D(contactMap,g/96.+.5).a; col*=mix(vec3(1.0),vec3(.14,.20,.30),max(occlusion,.96*contact));',
       'float horizon=smoothstep(45.,210.,length(g));col=mix(col,vec3(.155,.175,.193),horizon*.64);',
       'float grooves=(1.-smoothstep(.03,.12,abs(track-2.7)))*(1.-horizon);col*=1.-.26*grooves;',
       'float alpha=(1.-smoothstep(211.,338.,length(g)+(noise21(g*.025)-.5)*36.))*smoothstep(.08,.74,proximity);',
@@ -900,6 +917,7 @@ function freightYard(batch, ground, glow, materials) {
     for (const s of [-1, 1]) {
       batch.box(x + 0.3 * s, 0.46, z + 0.995, 0.18, 0.1, 0.05, white);
       batch.box(x + 0.49 * s, 0.19, z, 0.12, 0.31, 1.7, steel);
+      ground.contact(x + 0.51 * s, z, .28, 1.04, 0);
     }
     ground.block(x, z, 1.1, 2.3, 0.5, 0);
   }
@@ -1022,6 +1040,12 @@ export function createEngine({ shared = false } = {}) {
         plate(6.76, 28.74, a, 1.59, .28, .52, steel, .28);
         if (lod === 0) {
           const serviceAngle = a + .125;
+          // Anchor plates reach past the plinth, with a tight contact at the slab.
+          const toe = at(13.27, .42, a);
+          plate(12.8, .88, a, .83, .9, 1.12, gunmetal, .45);
+          plate(13.26, .34, a, 1.22, .24, 1.07, charcoal);
+          ground.contact(toe[0], toe[2], .89 * s, .86 * s, a);
+          for (const side of [-1, 1]) plate(13.25, .485, a + .024 * side, .11, .09, .16, trim);
           plate(8.65, 5.2, serviceAngle, 1.56, 2.46, .46, gunmetal, -.29);
           plate(8.94, 5.19, serviceAngle, 1.33, 1.43, .16, dark, -.29);
           for (let vane = 0; vane < 6; vane++) {
@@ -1274,6 +1298,7 @@ export function createEngine({ shared = false } = {}) {
     batch.box(x, 0.7, z - 0.105, 0.23, 0.21, 0.13, steel, angle);
   }
   ground.texture.needsUpdate = true;
+  ground.contactMap.needsUpdate = true;
   ground.spillMap.needsUpdate = true;
   batch.flush();
   const plume = makePlumes(group, vents, uniforms, shared);

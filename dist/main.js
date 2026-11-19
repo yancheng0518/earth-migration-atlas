@@ -202,7 +202,7 @@ function paintFilm(force = false) {
       i < 3 ? '待命' : i === 3 ? (p >= 0.6 ? '进站' : p <= 0.11 ? '准备上行' : '上行') : '枢纽停靠',
     );
     const range = $('film-progress');
-    range.value = String(Math.round((s / total) * 1000));
+    range.value = s.toFixed(1);
     range.style.setProperty('--progress', ((s / total) * 100).toFixed(2) + '%');
     range.setAttribute('aria-valuetext', fmt(s) + '，' + c.title);
     put('film-time', fmt(s));
@@ -286,6 +286,7 @@ const timeline = gsap.timeline({
   },
 });
 timeline.to(clock, { seconds: total, duration: total, ease: 'none' }, 0);
+$('film-progress').max = String(total);
 put('film-total', fmt(total));
 put('ending-copy', '银河旋臂里，地球继续飞向比邻星。下一班值守人员将接续记录这段航程。');
 function setMode(next) {
@@ -604,7 +605,7 @@ $('start-silent').onclick = () => {
   leaveStartGate();
   enterFilm();
 };
-$('film-progress').addEventListener('input', (e) => seek((Number(e.target.value) * total) / 1000));
+$('film-progress').addEventListener('input', (e) => seek(e.target.valueAsNumber));
 jumpButtons.forEach((b, i) => (b.onclick = () => seek(startTimes[i])));
 $('mode-film').onclick = () => {
   if (mode === 'film' && !done) return;

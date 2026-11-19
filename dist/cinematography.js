@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { cosmicScale, liftProgress, ignitionDemand } from './states.js';
+import { cosmicScale, departureCue, liftProgress, ignitionDemand } from './states.js';
 import { createLiftShot } from './lift-shot.js';
 
 const R = 2.2;
@@ -65,6 +65,10 @@ export function createCinematography(models, navigation, traffic) {
     stationPose = makePose(),
     escort = makePose();
   const yard = makePose();
+  const departure = makePose();
+  const departureAxis = new THREE.Vector3();
+  const departureSide = new THREE.Vector3();
+  const nearDeparture = new THREE.Vector3();
   const basis = new THREE.Matrix4(),
     qa = new THREE.Quaternion(),
     qb = new THREE.Quaternion();
@@ -93,7 +97,9 @@ export function createCinematography(models, navigation, traffic) {
     // between two phases at the caption boundary.
     const coast = Math.min(time, 38),
       brake = clamp(time - 38, 0, 14);
-    state.rotation = 0.0175 * (coast + brake - (brake * brake) / 28);
+    const brakingTurn = clamp(time - 36, 0, 16);
+    state.rotation = 0.0175 * (coast + brake - (brake * brake) / 28)
+      + .36 * Math.sin(Math.PI * ease(brakingTurn, 0, 16) / 2);
     solarPhase = phase(time, 0, 16);
     jovePhase = ease(time, 76, 100);
     exitPhase = phase(time, 91.5, 108);
@@ -122,16 +128,17 @@ export function createCinematography(models, navigation, traffic) {
     positionSystem(sun, t, solarPhase, 520 * ease(t, 11.5, 30) + 170 * ease(t, 45, 97));
     positionSystem(jupiter, t, jovePhase, 570 * (1 - ease(t, 62, 86)) + 820 * ease(t, 94.5, 108));
     positionSystem(proxima, t, exitPhase, 0);
-    proxima.setWake(ease(t, 87.5, 99.5) * (1 - ease(cosmicScale(t), 0, 0.17)));
+    proxima.setWake(ease(t, 96, departureCue - .6) * (1 - ease(cosmicScale(t), 0.035, 0.29)));
     sun.lightSource
       .getWorldPosition(light)
       .normalize()
       .lerp(defaultLight, ease(t, 5.4, 15))
       .normalize();
     proxima.lightSource.getWorldPosition(tmp).normalize();
-    light.lerp(tmp, ease(t, 91, 104)).normalize();
+    light.lerp(tmp, .77 * ease(t, 91, 104)).normalize();
     earth.setSunDirection(light);
     earth.setDiagrams(false);
+    return light;
   }
 
   // Slerp the direction instead of interpolating a chord through the planet.
@@ -161,18 +168,15 @@ export function createCinematography(models, navigation, traffic) {
   }
 
   function systemLens(m, t) {
-    const p = m === sun ? solarPhase : m === jupiter ? jovePhase : exitPhase;
     aimLocal.fromArray(m.target);
     eyeLocal.fromArray(m.camera).sub(aimLocal);
     if (m === sun) {
       eyeLocal.applyAxisAngle(up, mix(-0.16, 0.13, ease(t, 0, 14))).multiplyScalar(mix(1.03, 0.85, solarPhase));
       eyeLocal.y += 0.46 * (1 - ease(t, 1, 10));
       aimLocal.x += 0.35;
-    } else if (m === jupiter) {
-      eyeLocal.applyAxisAngle(up, mix(-0.15, 0.17, p)).multiplyScalar(mix(0.86, 1.05, p));
-      eyeLocal.y += 0.65 * Math.sin(Math.PI * p);
     } else {
-      eyeLocal.applyAxisAngle(up, mix(-0.14, 0.1, p)).multiplyScalar(mix(0.97, 1.13, p));
+      eyeLocal.applyAxisAngle(up, mix(-0.15, 0.17, jovePhase)).multiplyScalar(mix(0.86, 1.05, jovePhase));
+      eyeLocal.y += 0.65 * Math.sin(Math.PI * jovePhase);
     }
     macro.aim.copy(aimLocal);
     macro.eye.copy(aimLocal).add(eyeLocal);
@@ -181,9 +185,9 @@ export function createCinematography(models, navigation, traffic) {
     macro.eye.sub(m.group.userData.travelOffset);
     macro.aim.sub(m.group.userData.travelOffset);
     if (m === sun) macro.aim.lerp(origin, ease(t, 3.4, 11.8));
-    if (m === jupiter) macro.aim.lerp(origin, 0.22 + 0.25 * ease(t, 88, 97));
+    if (m === jupiter) macro.aim.lerp(origin, 0.22 + 0.40 * ease(t, 86, 95));
     macro.up.copy(up);
-    macro.fov = m === sun ? 37 : m === jupiter ? 39 : 37.5;
+    macro.fov = m === sun ? 37 : 39;
     macro.near = Math.max(0.005, macro.eye.length() * 0.0011);
     return macro;
   }
@@ -243,10 +247,28 @@ export function createCinematography(models, navigation, traffic) {
     return escort;
   }
 
+  function departureLens(t) {
+    // Hold a three-quarter view of the exhaust hemisphere through the music
+    // cue. In our Earth-centred frame only the lens and its target move.
+    const travel = proxima.wakeDirection || nearDeparture.set(.23, .11, -.97).normalize();
+    departureSide.crossVectors(up, travel).normalize();
+    departureAxis.copy(travel).multiplyScalar(-.43).addScaledVector(departureSide, -.87);
+    departureAxis.y += .28;
+    departureAxis.normalize();
+    const retreat = ease(t, departureCue + .6, 108);
+    departureAxis.applyAxisAngle(up, -.19 * retreat);
+    departure.eye.copy(departureAxis).multiplyScalar(mix(15.4, 24.0, retreat));
+    departure.aim.copy(travel).multiplyScalar(-.93 - .55 * retreat);
+    departure.up.copy(up);
+    departure.fov = 36;
+    departure.near = .055;
+    return departure;
+  }
+
   function sample(t) {
     // A small sideways translation carries across the stop-rotation chapter.
     // The same starting vector is passed to the ground and elevator routes.
-    const az = 0.075 - 0.62 * ease(t, 35, 53) + 0.16 * ease(t, 49, 58);
+    const az = 0.075 - 0.44 * ease(t, 35, 39.7) + 0.16 * ease(t, 49, 58);
     orbit.set(Math.sin(az), 0.046 + 0.049 * ease(t, 39, 52), Math.cos(az)).normalize();
     const distance = 8.75 - 0.65 * ease(t, 37, 52);
     if (t < 49) {
@@ -276,20 +298,15 @@ export function createCinematography(models, navigation, traffic) {
       return handOver(lift, escortLens(t), ease(t, 65.7, 70.2));
     }
     if (t < 79.6) return handOver(escortLens(t), portLens(t), ease(t, 75.7, 79.6));
-    if (t < 88.8) return join(portLens(t), systemLens(jupiter, t), ease(t, 79.6, 88.8));
-    if (t < 94.1) return systemLens(jupiter, t);
-    if (t < 101.4) {
-      // Track the travelling Earth while Jupiter slips past. Keep an independent
-      // copy because both astronomical lenses reuse the same working vectors.
-      const j = systemLens(jupiter, t);
-      stationPose.eye.copy(j.eye);
-      stationPose.aim.copy(j.aim);
-      stationPose.up.copy(j.up);
-      stationPose.near = j.near;
-      stationPose.fov = j.fov;
-      return join(stationPose, systemLens(proxima, t), ease(t, 94.1, 101.4));
+    if (t < 88.8) {
+      const pose = join(portLens(t), systemLens(jupiter, t), ease(t, 79.6, 88.8));
+      // Hold the Earth limb as a reference while the station falls away and
+      // Jupiter enters from the other side of the same frame.
+      pose.aim.lerp(origin, 0.44 * ease(t, 79.6, 81.4) * (1 - ease(t, 82.5, 85.5)));
+      return pose;
     }
-    return systemLens(proxima, t);
+    if (t < 92.6) return systemLens(jupiter, t);
+    return join(systemLens(jupiter, t), departureLens(t), ease(t, 92.6, 97.7));
   }
   function resumeNavigation(t) {
     if (t >= 11.4 && t < 49) navigation.resumeShot('engine', planetState.depth, orbit);

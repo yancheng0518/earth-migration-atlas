@@ -8,7 +8,7 @@ import { createNavigation } from './navigation.js';
 import { makeSky } from './sky.js';
 import { createCinematography } from './cinematography.js';
 import { createTraffic } from './scenes/traffic.js';
-import { createBloom, installReflections } from './lighting.js';
+import { createBloom, createWorldLighting } from './lighting.js';
 import { createCosmic } from './cosmic.js';
 import { cosmicScale, cosmicStart } from './states.js';
 
@@ -41,13 +41,8 @@ export async function openWorld({
     sky = makeSky();
   scene.background = new THREE.Color(0x0a0a1a);
   const camera = new THREE.PerspectiveCamera(40, 1, 0.025, 1400);
-  const solar = new THREE.DirectionalLight(0xffe6cb, 2.2);
-  solar.position.set(0.92, 0.56, -0.1);
-  const bounce = new THREE.DirectionalLight(0xb4c9e6, 0.72);
-  bounce.position.set(-0.38, -0.44, 1);
-  const hemi = new THREE.HemisphereLight(0xc8d5e2, 0x484e60, 0.92);
-  scene.add(sky.group, solar, bounce, hemi);
-  const reflections = installReflections(scene, renderer);
+  scene.add(sky.group);
+  const lighting = createWorldLighting(scene, renderer);
 
   // Register the actual texture requests before the loader can finish an epoch.
   THREE.Cache.enabled = true;
@@ -118,11 +113,7 @@ export async function openWorld({
     departureFar = 1400,
     departureScale = 0,
     visibleScale = 0;
-  const celestialOrbit = new THREE.Vector3(0, 0.12, 1).normalize();
-  const closingPose = {eye: new THREE.Vector3(), aim: new THREE.Vector3(), up: new THREE.Vector3(), near: 0.03, fov: 40};
   const closingDirection = new THREE.Vector3();
-  const closingTurn = new THREE.Quaternion();
-  const closingRotation = new THREE.Quaternion();
   const reticleUniforms = new Map();
   for (const id of ['earth', ...facilities]) {
     for (const entry of models[id].pickables) {
@@ -186,11 +177,6 @@ export async function openWorld({
     models.engine.update(time, dt);
     models.elevator.update(time, dt, liftPhase);
     models.station.update(time, dt);
-    // Fixed horizon lighting remains available on the cable and rotating station;
-    // the engine's local warm sources take over inside its twilight valley.
-    solar.intensity = 2.28 * (1 - 0.87 * approach);
-    hemi.intensity = 0.92 * (1 - 0.78 * approach);
-    bounce.intensity = 0.72 * (1 - 0.79 * approach);
     earth.group.updateMatrixWorld();
   }
   function density(v) {
@@ -245,33 +231,15 @@ export async function openWorld({
     const state = cinematography.update(time);
     earth.setRotationPhase(state.rotation);
     updateEarth(time, 0, state.ground, state.power, state.cabin);
-    cinematography.environment(time);
-    traffic.update(time, camera, height);
+    const sunDirection = cinematography.environment(time);
+    lighting.update(sunDirection, state.ground);
+    traffic.update(time);
     const scale = cosmicScale(time);
     let pose = cinematography.sample(Math.min(time, cosmicStart));
-    if (time > 104.5) {
-      // Level the lens on the same moving Earth before the wider orbits enter
-      // the field. The zero-scale pose is shared with the reversible flyout.
-      const v = THREE.MathUtils.smootherstep(time, 104.5, cosmicStart);
-      const globe = navigation.sample('engine', 0, celestialOrbit);
-      // Orbit the Earth instead of taking a chord that could cross the crust.
-      closingDirection.copy(pose.eye).normalize();
-      closingTurn.setFromUnitVectors(closingDirection, celestialOrbit);
-      closingRotation.identity().slerp(closingTurn, v);
-      const altitude = 2.2 + Math.exp(THREE.MathUtils.lerp(
-        Math.log(Math.max(0.001, pose.eye.length() - 2.2)),
-        Math.log(globe.eye.length() - 2.2),
-        v,
-      ));
-      closingPose.eye.copy(closingDirection).applyQuaternion(closingRotation).multiplyScalar(altitude);
-      closingPose.aim.lerpVectors(pose.aim, globe.aim, v);
-      closingPose.up.lerpVectors(pose.up, globe.up, v).normalize();
-      closingPose.near = THREE.MathUtils.lerp(pose.near, globe.near, v);
-      closingPose.fov = THREE.MathUtils.lerp(pose.fov, globe.fov, v);
-      pose = scale > 0 ? cosmic.sample(scale, closingPose) : closingPose;
-    }
+    if (scale > 0) pose = cosmic.sample(scale, pose);
     applyPose(pose, 1);
     updateScale(scale, time);
+    if (traffic.group.visible) traffic.updateAppearance(camera, height);
     const id = [
       'sun',
       state.depth > 0.41 ? 'engine' : 'earth',
@@ -310,7 +278,10 @@ export async function openWorld({
       departureScale = visibleScale;
       navigation.reset();
       cinematography.resumeNavigation(frame.time);
-      if (visibleScale > 0) navigation.resumeShot('engine', -visibleScale, celestialOrbit);
+      if (visibleScale > 0) {
+        const departure = cinematography.sample(cosmicStart);
+        navigation.resumeShot('engine', -visibleScale, closingDirection.copy(departure.eye).normalize());
+      }
       handoff = initial || reduced.matches ? 1 : 0;
       exploring = true;
       elapsed = frame.time;
@@ -493,6 +464,7 @@ export async function openWorld({
         elapsed += dt;
         const ground = navigation.route === 'engine' ? smooth(navigation.depth, 0.49, 0.96) : 0;
         updateEarth(elapsed, dt, ground, 1);
+        lighting.update(null, ground);
         let pose = navigation.step(dt, reduced.matches);
         let scale = Math.max(0, -navigation.depth);
         if (scale > 0) {
@@ -530,7 +502,10 @@ export async function openWorld({
         applyPose(pose, 0.93);
         updateScale(scale, elapsed);
         earth.setDiagrams(scale < 0.24);
-        traffic.update(elapsed, camera, height);
+        if (traffic.group.visible) {
+          traffic.update(elapsed);
+          traffic.updateAppearance(camera, height);
+        }
         sceneName(navigation.depth > 0.45 ? navigation.route : scaleName(scale));
         if (stamp - lastHud > 95) {
           onMarkers(navigation.depth < 0.34 && scale < 0.20 ? readMarkers() : {});
@@ -566,7 +541,7 @@ export async function openWorld({
       alive = false;
       observer.disconnect();
       bloom.dispose();
-      reflections.dispose();
+      lighting.dispose();
       onLoss(current);
     },
     { once: true },

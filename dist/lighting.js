@@ -1,16 +1,18 @@
 import * as THREE from 'three';
 
-/** A radiance probe supplies the broad blue Earth reflection and narrow warm
- * solar reflection which directional lights alone cannot give brushed metal.
- * Pre-filter it once for every surface roughness. It is never drawn as a sky. */
-export function installReflections(scene, renderer) {
+const overviewSun = new THREE.Vector3(0.92, 0.56, -0.1).normalize();
+// Custom material shaders may share the same light vector as standard meshes.
+export const worldSunDirection = overviewSun.clone();
+
+/** Bake the solar lobe once per material roughness. Rotating this probe with
+ * the shared key preserves its direction without regenerating it on each seek. */
+function installReflections(scene, renderer) {
   // PMREM also uses half-float color attachments. The directional lights
   // remain available on devices that expose WebGL 2 without float targets.
-  if (!renderer.extensions.has('EXT_color_buffer_float')) return { dispose() {} };
+  if (!renderer.extensions.has('EXT_color_buffer_float')) return null;
   const width = 256,
     height = 128;
   const pixels = new Float32Array(width * height * 4);
-  const sun = new THREE.Vector3(0.9, 0.36, -0.24).normalize();
   for (let y = 0; y < height; y++) {
     const lat = ((y + 0.5) / height - 0.5) * Math.PI;
     const ny = Math.sin(lat),
@@ -19,14 +21,12 @@ export function installReflections(scene, renderer) {
       const a = ((x + 0.5) / width - 0.5) * Math.PI * 2;
       const nx = Math.cos(a) * horizontal,
         nz = Math.sin(a) * horizontal;
-      const facing = Math.max(0, nx * sun.x + ny * sun.y + nz * sun.z);
-      const key = 7.4 * facing ** 520 + 0.4 * facing ** 24;
-      const earthshine = 0.43 * Math.max(0, -0.44 * nx - 0.55 * ny + 0.71 * nz) ** 2;
-      const horizon = 0.15 * Math.exp(-((ny + 0.1 + 0.14 * nx) ** 2) / 0.019) * (0.62 + 0.38 * nz);
+      const facing = Math.max(0, nx * overviewSun.x + ny * overviewSun.y + nz * overviewSun.z);
+      const key = 8.3 * facing ** 430 + 0.48 * facing ** 22;
       const i = 4 * (y * width + x);
-      pixels[i] = 0.012 + key + earthshine * 0.48 + horizon * 0.64;
-      pixels[i + 1] = 0.017 + key * 0.8 + earthshine * 0.75 + horizon * 0.81;
-      pixels[i + 2] = 0.026 + key * 0.61 + earthshine * 1.13 + horizon * 1.14;
+      pixels[i] = 0.030 + key;
+      pixels[i + 1] = 0.038 + key * 0.81;
+      pixels[i + 2] = 0.052 + key * 0.65;
       pixels[i + 3] = 1;
     }
   }
@@ -40,6 +40,36 @@ export function installReflections(scene, renderer) {
   filter.dispose();
   map.dispose();
   return probe;
+}
+
+export function createWorldLighting(scene, renderer) {
+  const key = new THREE.DirectionalLight(0xffe6cb);
+  // With Earth at the shared origin, each surface sees the blue fill from its
+  // own suborbital direction instead of receiving a constant camera-side wash.
+  const earthBounce = new THREE.PointLight(0xa6c8f0, 3.45, 9, 2);
+  const base = new THREE.HemisphereLight(0xc5d3e4, 0x4d4e58, 0.63);
+  scene.add(key, earthBounce, base);
+  const probe = installReflections(scene, renderer);
+  const fromSun = new THREE.Quaternion();
+  const sampleRotation = new THREE.Euler();
+
+  function update(sunDirection, groundApproach = 0) {
+    worldSunDirection.copy(sunDirection ?? overviewSun).normalize();
+    key.position.copy(worldSunDirection);
+    key.intensity = 2.28 * (1 - 0.87 * groundApproach);
+    earthBounce.intensity = 3.45 * (1 - 0.82 * groundApproach);
+    base.intensity = 0.63 * (1 - 0.72 * groundApproach);
+    if (!probe) return;
+    // Convert the inverse into the shader's Euler convention. Three negates
+    // the Euler components before sampling the world-space environment.
+    fromSun.setFromUnitVectors(overviewSun, worldSunDirection).invert();
+    sampleRotation.setFromQuaternion(fromSun, 'XYZ');
+    scene.environmentRotation.set(-sampleRotation.x, -sampleRotation.y, -sampleRotation.z);
+    scene.environmentIntensity = 0.78 * (1 - 0.36 * groundApproach);
+  }
+
+  update(null);
+  return { update, dispose: () => probe?.dispose() };
 }
 
 const screenVertex = `

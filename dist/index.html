@@ -80,7 +80,7 @@
           <div class="transport flex items-center">
             <button id="film-toggle" aria-keyshortcuts="Space" class="transport-btn flex items-center" aria-label="暂停电影"><svg><use id="film-icon" href="#i-pause"/></svg><span id="film-label">暂停</span></button>
             <output class="timecode" id="film-time" aria-label="已播放">00:00</output>
-            <label class="progress-wrap"><span class="sr-only">电影进度</span><input id="film-progress" type="range" min="0" max="1000" step="1" value="0" aria-label="电影进度"></label>
+            <label class="progress-wrap"><span class="sr-only">电影进度</span><input id="film-progress" type="range" min="0" step="0.1" value="0" aria-label="电影进度"></label>
             <output class="timecode total" id="film-total" aria-label="电影总时长">00:00</output>
           </div>
           <div id="film-tools" class="film-tools flex items-center">

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { worldSunDirection } from '../lighting.js';
 import {
   assembly,
   projectedDetails,
@@ -102,7 +103,7 @@ function label(text, subtext) {
 
 // Each of the three load-bearing cables has four counterwound steel wires.
 // The shader retains the highlight of the helical wire beyond normal mesh LOD.
-function suspensionCables(bottom = -75, top = 75) {
+function suspensionCables(bottom = -75, top = 75, shared = false) {
   const positions = [],
     normals = [],
     details = [],
@@ -143,20 +144,25 @@ function suspensionCables(bottom = -75, top = 75) {
   geo.setIndex(index);
   const material = new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
+    uniforms: {
+      sunDirection: { value: shared ? worldSunDirection : V(.92, .56, -.1) },
+      sharedWorld: { value: Number(shared) },
+    },
     vertexShader: [
       'attribute vec2 wire; varying vec2 knot; varying vec3 n,pos;',
       'void main(){knot=wire; n=normalize(mat3(modelMatrix)*normal);',
       'pos=(modelMatrix*vec4(position,1.)).xyz;gl_Position=projectionMatrix*viewMatrix*vec4(pos,1.);}',
     ].join('\n'),
     fragmentShader: [
-      'varying vec2 knot;varying vec3 n,pos;',
-      'void main(){vec3 normal=normalize(n),eye=normalize(cameraPosition-pos),sun=normalize(vec3(.92,.56,-.10));',
+      'varying vec2 knot;varying vec3 n,pos;uniform vec3 sunDirection;uniform float sharedWorld;',
+      'void main(){vec3 normal=normalize(n),eye=normalize(cameraPosition-pos),sun=normalize(sunDirection);',
       'float fine=.83+.17*cos(knot.x*83.+knot.y*7.1);',
       'vec3 col=(vec3(.026,.039,.054)+vec3(.20,.17,.14)*max(0.,dot(normal,sun)))*fine;',
       'float glint=pow(max(0.,dot(normal,normalize(eye+sun))),42.);',
-      'vec3 earth=normalize(vec3(-.63,-.60,.35));',
+      'vec3 earth=normalize(mix(vec3(-.63,-.60,.35),-pos,sharedWorld));',
       'float bounce=pow(max(0.,dot(normal,normalize(eye+earth))),13.);',
-      'col+=vec3(.92,.82,.70)*glint*.68+vec3(.15,.30,.49)*bounce;',
+      'float earthLight=mix(1.,clamp(pow(2.2/max(2.2,length(pos)),2.),.18,1.),sharedWorld);',
+      'col+=vec3(.92,.82,.70)*glint*.68+vec3(.12,.23,.35)*bounce*earthLight;',
       'gl_FragColor=vec4(col,1.);',
       '#include <tonemapping_fragment>',
       '#include <colorspace_fragment>',
@@ -207,20 +213,22 @@ export function createElevator({ shared = false } = {}) {
   const detail = shared ? projectedDetails(group, counterweightHeight) : null;
   group.add(installation);
   installation.add(climber);
-  const cables = suspensionCables(bottom, top);
+  const cables = suspensionCables(bottom, top, shared);
   installation.add(cables);
   detail?.part(cables, 0.18);
   const coating = paintwork(),
     array = solarSurface(),
     mill = rolledFinish();
   const white = steel(0xa7afb0, .81, .36),
-    steelBlue = steel(0x657786, .76, .71),
+    steelBlue = steel(0x657786, .58, .76),
     ivory = steel(0x9a9990, .78, .54),
     graphite = steel(0x45515a, .72, .6),
     black = steel(0x131e25, .88, .31),
     bronze = steel(0x887354, .79, .68),
     coatingGray = steel(0x7f898f, .82, .41),
-    hazard = steel(0x9b6941, .74, .38);
+    hazard = steel(0x9b6941, .74, .38),
+    insulation = steel(0xb9afa0, .95, .09),
+    seal = steel(0x13181c, .96, .03);
   for (const material of [white, steelBlue, ivory, bronze, coatingGray, graphite, hazard]) {
     material.roughnessMap = mill;
     material.bumpMap = mill;
@@ -229,7 +237,12 @@ export function createElevator({ shared = false } = {}) {
   white.map = coating;
   const blueLight = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.22, .59, .88) });
   const warmLight = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.16, .68, .31) });
-  const navBlue = steel(0x162933, .28, .62);
+  insulation.roughnessMap = mill;
+  insulation.bumpMap = mill;
+  insulation.bumpScale = .00012;
+  const navBlue = new THREE.MeshPhysicalMaterial({
+    color: 0x162933, roughness: .23, metalness: .08, clearcoat: .65, clearcoatRoughness: .18,
+  });
   navBlue.emissive.setHex(0x102a31);
   navBlue.emissiveIntensity = .52;
   const box = new THREE.BoxGeometry();
@@ -298,6 +311,28 @@ export function createElevator({ shared = false } = {}) {
       brace(terminal, steelBlue, p, q, 0.033);
       const tip = q.clone().addScaledVector(up, 0.34);
       brace(terminal, graphite, p.clone().addScaledVector(up, -.25), tip, .025);
+    }
+  }
+  if (shared) {
+    // An independent inspection guide keeps its clamps outside the cabin's swept area.
+    // Their unequal spacing makes altitude and speed legible as the camera rides past.
+    const angle = .65;
+    for (const offset of [-.12, .12]) {
+      const a = angle + offset;
+      brace(terminal, steelBlue, pointOnRing(a, 1.91, bottom + .75), pointOnRing(a, 1.91, deckY - .2), .025);
+    }
+    for (const y of [bottom + 5.2, bottom + 11.5, bottom + 18.4, bottom + 24.7]) {
+      for (const offset of [-.12, .12]) {
+        const a = angle + offset;
+        const seam = pointOnRing(a, 1.91, y);
+        cylinderAt(terminal, seal, seam.x, y, seam.z, .082, .27);
+        for (const edge of [-.115, .115]) cylinderAt(terminal, steelBlue, seam.x, y + edge, seam.z, .088, .064);
+        brace(terminal, graphite, pointOnRing(angle - offset, 1.91, y - .5), seam, .032);
+      }
+      face(terminal, armor, graphite, angle, 1.93, y, 0, .56, .27, .15);
+      face(terminal, armor, hazard, angle, 2.01, y + .015, 0, .29, .09, .046);
+      face(terminal, box, warmLight, angle, 2.045, y + .029, .18, .041, .025, .016);
+      bolts(terminal, angle, 2.021, y - .057, .175, .024);
     }
   }
   // The upper terminal is an open ring: a vehicle can travel between the guide bogies.
@@ -431,7 +466,10 @@ export function createElevator({ shared = false } = {}) {
       const rollerLeft = pointOnRing(a - .16, .55, y + .169),
         rollerRight = pointOnRing(a + .16, .55, y + .169);
       for (const roller of [rollerLeft, rollerRight]) {
-        cylinderAt(vehicle, steelBlue, roller.x, roller.y, roller.z, .071, .08, [0, a, Math.PI / 2]);
+        const axle = [0, a, Math.PI / 2];
+        cylinderAt(vehicle, seal, roller.x, roller.y - .049, roller.z, .087, .108, axle);
+        cylinderAt(vehicle, steelBlue, roller.x, roller.y, roller.z, .071, .09, axle);
+        cylinderAt(vehicle, ivory, roller.x, roller.y, roller.z, .036, .101, axle);
       }
       face(vehicle, armor, coatingGray, a, .758, y - .025, 0, .22, .115, .15);
     }
@@ -443,7 +481,8 @@ export function createElevator({ shared = false } = {}) {
     // as alternating removable panels over a recessed structural core.
     for (const sign of [-1, 1]) {
       face(vehicle, armor, steelBlue, a, .949, .007, sign * .329, .114, 1.15, .19);
-      face(vehicle, armor, white, a, 1.004, -.187, sign * .136, .246, .58, .12);
+      face(vehicle, armor, seal, a, .991, -.187, sign * .136, .274, .601, .111);
+      face(vehicle, armor, n % 3 === 1 ? white : insulation, a, 1.004, -.187, sign * .136, .238, .56, .12);
       face(vehicle, armor, ivory, a, .961, -.581, sign * .109, .187, .131, .20);
       const railBottom = pointOnRing(a + sign * .36, .916, -.73);
       const railTop = pointOnRing(a + sign * .36, .916, .68);
