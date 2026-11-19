@@ -217,7 +217,7 @@ function atmosphere(group, uniforms, shared) {
         'vec2 sp=vec2(atan(d.x,d.z)*310.,asin(d.y)*330.);vec2 sk=floor(sp);',
         'float star=step(.994,hash21(sk))*exp(-dot(fract(sp)-.5,fract(sp)-.5)*30.);',
         'sky+=star*smoothstep(.09,.46,h)*vec3(.24,.32,.43)*(1.-sharedSky);',
-        'float exhaust=smoothstep(.12,.90,ignition);sky+=vec3(.018,.033,.074)*exhaust*exp(-h*3.8);',
+        'float exhaust=smoothstep(.12,.90,ignition);sky+=vec3(.014,.041,.093)*exhaust*exp(-h*3.8);',
         'float air=smoothstep(.56,.99,proximity)*mix(.94,.15,smoothstep(.07,.77,h));',
         'gl_FragColor=vec4(sky,mix(1.,air,sharedSky));',
         '#include <tonemapping_fragment>',
@@ -277,7 +277,7 @@ function groundShadows() {
     tower(x, z, s) {
       oval(x + 12 * s, z + 8 * s, 35 * s, 11.6 * s, 0.59, 0.54, 0.36);
       oval(x + 2 * s, z + 1.3 * s, 18 * s, 15.2 * s, 0.59, 0.99, 0.84);
-      oval(x, z, 41 * s, 37 * s, 0, 0.98, 0.23, blue);
+      oval(x, z, 54 * s, 49 * s, 0, 0.94, 0.29, blue);
     },
     block(x, z, w, d, h, a) {
       oval(x + h * 0.8, z + h * 0.5, w * 0.75 + h * 0.72, d * 0.73 + h * 0.48, -a, 0.84, 0.57);
@@ -371,7 +371,7 @@ function landscape(group, random, groundMaps, uniforms, shared) {
       'float grooves=(1.-smoothstep(.03,.12,abs(track-2.7)))*(1.-horizon);col*=1.-.26*grooves;',
       'float alpha=(1.-smoothstep(211.,338.,length(g)+(noise21(g*.025)-.5)*36.))*smoothstep(.08,.74,proximity);',
       'if(alpha<.004)discard;float spill=texture2D(spillMap,g/384.+.5).a*firing(g,ignition);',
-      'col+=vec3(.017,.054,.146)*spill*(.55+.43*grain)*(1.-.40*occlusion);',
+      'col+=vec3(.024,.072,.179)*spill*(.58+.42*grain)*(1.-.58*occlusion);',
       'float wet=(1.-smoothstep(.22,1.85,track))*smoothstep(.08,.83,rocks);col+=vec3(.012,.026,.052)*wet*spill;',
       'float drift=noise21(vec2(g.x*.055-weatherTime*.10,g.y*.71+g.x*.13));',
       'col+=vec3(.023,.030,.038)*smoothstep(.67,.95,drift)*(1.-roadway*.67)*proximity;',
@@ -485,15 +485,16 @@ function makePlumes(group, vents, uniforms, shared) {
     const direction = new THREE.Vector3(),
       origin = new THREE.Vector3(v.x, v.y, v.z);
     placeOnSurface(origin, direction, shared);
-    for (let y = 0; y <= 40; y++) {
+    const delay = 0.105 + 0.54 * Math.min(1, Math.hypot(v.x, v.z) / 150);
+    for (let y = 0; y <= 32; y++) {
       for (let x = 0; x < 2; x++) {
         positions.push(origin.x, origin.y, origin.z);
         axes.push(direction.x, direction.y, direction.z);
-        delays.push(0.105 + 0.54 * Math.min(1, Math.hypot(v.x, v.z) / 150));
-        uv.push(x, y / 40);
+        delays.push(delay);
+        uv.push(x, y / 32);
         sizes.push(v.radius, v.height, v.seed);
       }
-      if (y < 40) {
+      if (y < 32) {
         const i = start + y * 2;
         indices.push(i, i + 1, i + 2, i + 1, i + 3, i + 2);
       }
@@ -517,9 +518,10 @@ function makePlumes(group, vents, uniforms, shared) {
       'attribute vec3 vent,axis;attribute float delay;varying vec2 t;varying float phase,power;uniform float time,ignition;uniform vec3 localEye;',
       'void main(){t=uv;phase=vent.z;vec3 base=position;power=smoothstep(delay,delay+.33,ignition);',
       'vec3 right=normalize(cross(axis,localEye-base)+vec3(.000001,0.,.000001));',
-      'float h=uv.y;float spread=1.+1.45*h+(.24*sin(h*18.-time*2.+phase)+.19*sin(h*36.-time*3.8))*h;',
+      'float h=uv.y;float shoulder=smoothstep(.025,.34,h),tail=smoothstep(.28,.98,h);',
+      'float spread=.76+.48*shoulder+2.12*tail+(.17*sin(h*18.-time*4.1+phase)+.13*sin(h*36.-time*6.8))*h;',
       'vec3 p=base+axis*(h*vent.y*mix(.012,1.,pow(power,.63)));',
-      'float curl=vent.x*h*h*(.53*sin(h*9.-time*.72+phase)+.25*sin(h*19.-time*2.+phase));',
+      'float curl=vent.x*h*h*(.87*sin(h*9.-time*1.42+phase)+.35*sin(h*19.-time*3.7+phase));',
       'p+=right*((uv.x-.5)*2.*vent.x*spread*mix(.30,1.,power)+curl);',
       'gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);}',
     ].join('\n'),
@@ -528,23 +530,25 @@ function makePlumes(group, vents, uniforms, shared) {
       noiseGLSL,
       'void main(){',
       '  float x=(t.x-.5)*2., h=t.y;',
-      '  float shear=noise21(vec2(x*3.+phase,h*9.-time*2.9));',
-      '  float roll=sin(h*18.-time*4.+phase)+.44*sin(h*32.-time*4.9);',
-      '  float center=(shear-.5)*(.14+.68*h)+roll*h*.13;',
-      '  float radius=max(.095,(.30+.31*h)*(.68+.70*shear));',
-      '  float r=(x-center)/radius;',
-      '  float flow=noise21(vec2(r*4.1+phase+shear*2.,h*27.-time*6.1));',
-      '  float folds=noise21(vec2(r*9.+phase+flow*2.1,h*49.-time*8.7));',
-      '  float volume=exp(-r*r*1.4)*(1.-smoothstep(.74,1.,abs(x)));',
-      '  float fade=1.-smoothstep(.47+.14*shear,.995,h);',
-      '  float wisps=volume*fade*smoothstep(.18,.92,flow*.61+folds*.39);',
-      '  float core=exp(-r*r*3.1-h*6.3)*(.5+.5*flow);',
-      '  float throat=exp(-r*r*6.-h*30.);',
-      '  float cell=.58+.42*cos(h*153.-time*1.4+flow*3.1);',
-      '  float diamonds=core*pow(cell,3.)*exp(-h*12.);',
-      '  vec3 glow=mix(vec3(.095,.22,.78),vec3(.35,.62,1.48),shear);',
-      '  vec3 color=glow*wisps*.88+vec3(.48,1.05,2.21)*core*.8;',
-      '  color+=vec3(2.3,2.55,2.4)*throat+vec3(.53,.61,1.04)*diamonds;',
+      '  float travel=h*(1.45-.45*h);',
+      '  float shear=noise21(vec2(x*3.8+phase,travel*10.-time*3.6));',
+      '  float roll=sin(travel*17.-time*7.1+phase)+.36*sin(travel*31.-time*9.8-phase);',
+      '  float center=(shear-.5)*(.045+.39*h)+roll*h*.13;',
+      '  float r=(x-center)/(.70-.18*h);',
+      '  float flow=noise21(vec2(r*4.1+phase+shear*2.,travel*27.-time*11.7));',
+      '  float folds=noise21(vec2(r*10.+phase+flow*2.1,travel*37.-time*17.5));',
+      '  float softEdge=1.-smoothstep(.72,1.,abs(x));',
+      '  float fade=1.-smoothstep(.48+.22*shear,.997,h);',
+      '  float volume=exp(-r*r*1.48)*softEdge*fade;',
+      '  float wisps=volume*smoothstep(.21,.83,flow*.58+folds*.42);',
+      '  float choke=1.+.18*cos(travel*106.+roll*.20)*exp(-h*4.7);',
+      '  float core=exp(-pow(abs(r)*choke,2.6)*1.9-h*5.9)*(.53+.47*flow)*softEdge;',
+      '  float throat=exp(-pow(abs(r)*1.50,4.)-h*24.)*(.82+.18*folds);',
+      '  float diamond=pow(.5+.5*cos(travel*129.-r*r*7.+phase*.3),4.);',
+      '  float shocks=core*diamond*exp(-h*6.)*(.66+.34*flow);',
+      '  vec3 tint=mix(vec3(.05,.39,.79),vec3(.18,.075,.52),smoothstep(.28,.94,h));',
+      '  vec3 color=tint*(.20*volume+1.12*wisps)+vec3(.13,.59,1.55)*core;',
+      '  color+=vec3(1.52,1.88,2.22)*throat+vec3(.36,.63,1.05)*shocks;',
       '  gl_FragColor=vec4(color*power,1.);',
       '#include <tonemapping_fragment>',
       '#include <colorspace_fragment>',
@@ -556,7 +560,92 @@ function makePlumes(group, vents, uniforms, shared) {
   mesh.frustumCulled = false;
   cameraInLocalSpace(mesh, eye);
   group.add(mesh);
-  return mat;
+  return mat.uniforms.time;
+}
+
+// One batch of stretched particles. Their position and velocity both derive from
+// the film clock, so a seek has no warm-up period and no frame history to replay.
+function makeJetFilaments(group, vents, uniforms, time, shared) {
+  const geometry = new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry(2, 2));
+  const centers = [], axes = [], nozzles = [], families = [];
+  const random = seededRandom(340191);
+  const center = new THREE.Vector3(), normal = new THREE.Vector3();
+  for (const vent of vents) {
+    placeOnSurface(center.set(vent.x, vent.y, vent.z), normal, shared);
+    const distance = Math.hypot(vent.x, vent.z);
+    const delay = .105 + .54 * Math.min(1, distance / 150);
+    const count = distance === 0 ? 160 : distance < 83 ? 55 : 26;
+    for (let i = 0; i < count; i++) {
+      centers.push(center.x, center.y, center.z);
+      axes.push(normal.x, normal.y, normal.z);
+      nozzles.push(vent.radius, vent.height, delay, vent.seed);
+      families.push(random(), random(), random(), random());
+    }
+  }
+  geometry.setAttribute('center', new THREE.InstancedBufferAttribute(new Float32Array(centers), 3));
+  geometry.setAttribute('axis', new THREE.InstancedBufferAttribute(new Float32Array(axes), 3));
+  geometry.setAttribute('nozzle', new THREE.InstancedBufferAttribute(new Float32Array(nozzles), 4));
+  geometry.setAttribute('family', new THREE.InstancedBufferAttribute(new Float32Array(families), 4));
+  geometry.instanceCount = families.length / 4;
+  const eye = { value: new THREE.Vector3() };
+  const material = new THREE.ShaderMaterial({
+    uniforms: { ignition: uniforms.ignition, proximity: uniforms.proximity, time, localEye: eye },
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      attribute vec3 center, axis;
+      attribute vec4 nozzle, family;
+      uniform float ignition, proximity, time;
+      uniform vec3 localEye;
+      varying vec2 streak;
+      varying float strength, axial;
+
+      void main() {
+        streak = position.xy;
+        float power = smoothstep(nozzle.z, nozzle.z + .33, ignition);
+        float extent = mix(.012, 1., pow(power, .63));
+        float cadence = mix(.92, 2.30, family.z);
+        float age = fract(time * cadence + family.w + nozzle.w * .43);
+        // The transverse spread increases after the constriction. Angular drift
+        // makes each packet follow a world-space streamline around the jet axis.
+        float h = age * (.21 + .79 * age);
+        axial = h;
+        vec3 tangent = normalize(cross(axis, vec3(0., 0., 1.)));
+        vec3 bitangent = cross(axis, tangent);
+        float angle = family.x*6.283185 + h*(.52+.56*sin(family.y*13.));
+        vec3 radial = tangent*cos(angle) + bitangent*sin(angle);
+        float radius = nozzle.x * sqrt(family.y) * (.49 + h*(.23 + 1.79*h));
+        vec3 path = center + axis*(nozzle.y*h*extent) + radial*radius;
+        vec3 velocity = normalize(axis + radial*(.07 + h*.42));
+        vec3 right = normalize(cross(velocity, localEye - path) + tangent*1e-5);
+        float streakLength = nozzle.x * mix(.29, .91, family.z) * (.55 + age*.95) * extent;
+        float width = nozzle.x * mix(.018, .041, family.z) * (1. - .45*h);
+        vec3 vertex = path + velocity * (streak.y * streakLength) + right * (streak.x * width);
+        strength = smoothstep(.018, .060, h) * (1. - smoothstep(.61, .99, h));
+        strength *= power * smoothstep(.04, .60, proximity) * mix(.20, .94, family.z*family.z);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(vertex, 1.);
+      }`,
+    fragmentShader: `
+      varying vec2 streak;
+      varying float strength, axial;
+      void main() {
+        float head = 1. - smoothstep(.52, 1., streak.y);
+        float tail = smoothstep(-1., .68, streak.y);
+        float density = exp(-streak.x*streak.x*3.75) * head * tail;
+        vec3 color = mix(vec3(.60, 1.00, 1.54), vec3(.24, .37, .95), smoothstep(.19,.88,axial));
+        gl_FragColor = vec4(color * density * strength, 1.);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 7;
+  cameraInLocalSpace(mesh, eye);
+  group.add(mesh);
+  return mesh;
 }
 
 function makeLights(group, lights, shared) {
@@ -1129,7 +1218,7 @@ export function createEngine({ shared = false } = {}) {
       y: 29.41 * s,
       z: cz,
       radius: 5.1 * s,
-      height: (lod === 0 ? 87 : 76) * s,
+      height: (lod === 0 ? 112 : 96) * s,
       seed: random() * 11,
     });
   }
@@ -1301,7 +1390,8 @@ export function createEngine({ shared = false } = {}) {
   ground.contactMap.needsUpdate = true;
   ground.spillMap.needsUpdate = true;
   batch.flush();
-  const plume = makePlumes(group, vents, uniforms, shared);
+  const plumeTime = makePlumes(group, vents, uniforms, shared);
+  const filaments = makeJetFilaments(group, vents, uniforms, plumeTime, shared);
   const mist = exhaustMist(group, vents, uniforms, shared);
   const steam = coolingVents(group, uniforms, shared);
   makeLights(group, lights, shared);
@@ -1378,12 +1468,13 @@ export function createEngine({ shared = false } = {}) {
     lightMix = shared ? 0 : 1,
     elapsedNow = 0;
   function syncLighting() {
+    filaments.visible = lightMix > .004 && power > .007;
     ambient.intensity = lightMix * (0.62 + power * 0.28);
     sun.intensity = lightMix * 3.12;
     key.intensity = lightMix * (0.61 + power * 0.28);
     const scale = shared ? group.getWorldScale(sceneScale).x : 1;
-    exhaustLight.distance = 43 * scale;
-    exhaustLight.intensity = lightMix * scale * scale * power * (510 + Math.sin(elapsedNow * 2.9) * 18);
+    exhaustLight.distance = 50 * scale;
+    exhaustLight.intensity = lightMix * scale * scale * power * (565 + Math.sin(elapsedNow * 3.4) * 20);
   }
   function setIgnition(value) {
     if (!Number.isFinite(value)) return;
@@ -1429,7 +1520,7 @@ export function createEngine({ shared = false } = {}) {
     update(elapsed) {
       elapsedNow = elapsed;
       uniforms.weatherTime.value = elapsed;
-      plume.uniforms.time.value = elapsed;
+      plumeTime.value = elapsed;
       mist.time.value = elapsed;
       convoy.update(elapsed);
       syncLighting();

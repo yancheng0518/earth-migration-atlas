@@ -9,6 +9,14 @@ const clamp = THREE.MathUtils.clamp;
 const mix = THREE.MathUtils.lerp;
 const ease = (t, a, b) => THREE.MathUtils.smootherstep(t, a, b);
 const phase = (t, a, b) => clamp((t - a) / (b - a), 0, 1);
+// Integrate a smooth acceleration into sustained speed. The story uses an
+// Earth-centred frame, so inertial landmarks receive the inverse displacement.
+function departureDistance(seconds) {
+  const age = Math.max(0, seconds);
+  const ramp = 1.55;
+  const u = Math.min(1, age / ramp);
+  return 2.75 * (ramp * u ** 3 * (1 - 0.5 * u) + Math.max(0, age - ramp));
+}
 const makePose = () => ({ eye: new THREE.Vector3(), aim: new THREE.Vector3(), up: up.clone(), near: 0.02, fov: 40 });
 const still = { yaw: 0, pitch: 0 };
 // Time, dolly position, point of interest and lens. Each coordinate has a
@@ -17,9 +25,10 @@ const yardKeys = [
   [19.2, 9.4, 3.8, 30.5, 10.2, 5.8, 11.8, 51],
   [20.5, 7.6, 2.5, 27, 15, 3.3, 11, 52],
   [22.0, 6.8, 2.45, 24.6, 17, 3.1, 10.3, 49],
-  [24.8, 9.2, 3.4, 23, 0.5, 13, 0, 49],
-  [26.8, 13, 12, 24, 0, 22, 0, 46],
-  [30.0, 20, 10, 34, 0, 21, 0, 48],
+  [24.8, 9.2, 3.4, 23, 0.5, 16.3, 0, 49],
+  [26.8, 13, 12.5, 27, 0, 29.5, 0, 49],
+  [30.0, 24, 16, 49, 0, 25, 0, 51],
+  [32.2, 34, 20, 60, 0, 25.5, 0, 50],
 ];
 function yardCoordinate(t, k) {
   const keys = yardKeys,
@@ -36,8 +45,8 @@ function yardCoordinate(t, k) {
     u = (t - a[0]) / span,
     u2 = u * u,
     u3 = u2 * u;
-  const va = (b[k] - before[k]) / (b[0] - before[0]),
-    vb = (after[k] - a[k]) / (after[0] - a[0]);
+  const va = i === 0 ? 0 : (b[k] - before[k]) / (b[0] - before[0]),
+    vb = i + 1 === last ? 0 : (after[k] - a[k]) / (after[0] - a[0]);
   return (
     (2 * u3 - 3 * u2 + 1) * a[k] + (u3 - 2 * u2 + u) * span * va + (-2 * u3 + 3 * u2) * b[k] + (u3 - u2) * span * vb
   );
@@ -68,7 +77,8 @@ export function createCinematography(models, navigation, traffic) {
   const departure = makePose();
   const departureAxis = new THREE.Vector3();
   const departureSide = new THREE.Vector3();
-  const nearDeparture = new THREE.Vector3();
+  const departureView = new THREE.Vector3(), departureSlide = new THREE.Vector3();
+  const travel = proxima.wakeDirection;
   const basis = new THREE.Matrix4(),
     qa = new THREE.Quaternion(),
     qb = new THREE.Quaternion();
@@ -106,7 +116,7 @@ export function createCinematography(models, navigation, traffic) {
     return state;
   }
 
-  function positionSystem(m, t, progress, distance) {
+  function positionSystem(m, t, progress, distance, thrustDisplacement = 0) {
     m.update(t, 0, progress);
     const { anchor, radius } = m.sharedEarth;
     const scale = R / (radius * anchor.scale.x);
@@ -114,10 +124,9 @@ export function createCinematography(models, navigation, traffic) {
     m.group.position.copy(anchor.position).multiplyScalar(-scale);
     const shift = (m.group.userData.travelOffset ??= new THREE.Vector3());
     shift.set(0, 0, 0);
-    if (distance) {
-      shift.copy(m.landmark.position).sub(anchor.position).setLength(distance);
-      m.group.position.add(shift);
-    }
+    if (distance) shift.copy(m.landmark.position).sub(anchor.position).setLength(distance);
+    shift.addScaledVector(travel, -thrustDisplacement);
+    m.group.position.add(shift);
     m.group.updateMatrixWorld();
   }
 
@@ -125,10 +134,16 @@ export function createCinematography(models, navigation, traffic) {
     // Slow interplanetary time compression. All three systems keep their
     // positions through chapter boundaries. Jupiter grows on approach and
     // recedes into the star field when the encounter is over.
-    positionSystem(sun, t, solarPhase, 520 * ease(t, 11.5, 30) + 170 * ease(t, 45, 97));
-    positionSystem(jupiter, t, jovePhase, 570 * (1 - ease(t, 62, 86)) + 820 * ease(t, 94.5, 108));
+    const age = t - departureCue;
+    const displacement = departureDistance(age);
+    const jupiterTime = t - 1.18 * ease(age, 0, 3.1) * (1 - ease(age, 5.3, 10));
+    positionSystem(sun, t, solarPhase, 520 * ease(t, 11.5, 30) + 170 * ease(t, 45, 97), displacement);
+    positionSystem(jupiter, t, jovePhase, 570 * (1 - ease(t, 62, 86)) + 820 * ease(jupiterTime, 94.5, 108), displacement);
     positionSystem(proxima, t, exitPhase, 0);
-    proxima.setWake(ease(t, 96, departureCue - .6) * (1 - ease(cosmicScale(t), 0.035, 0.29)));
+    const prime = 0.29 * ease(age, -1.77, -0.22);
+    const release = 0.71 * ease(age, -0.14, 0.09);
+    const kick = 0.19 * ease(age, -0.03, 0.13) * (1 - ease(age, 0.22, 0.88));
+    proxima.setWake((prime + release + kick) * (1 - ease(cosmicScale(t), 0.035, 0.29)));
     sun.lightSource
       .getWorldPosition(light)
       .normalize()
@@ -248,17 +263,22 @@ export function createCinematography(models, navigation, traffic) {
   }
 
   function departureLens(t) {
-    // Hold a three-quarter view of the exhaust hemisphere through the music
-    // cue. In our Earth-centred frame only the lens and its target move.
-    const travel = proxima.wakeDirection || nearDeparture.set(.23, .11, -.97).normalize();
+    // The camera initially holds its sightline, so the globe can move across
+    // the frame before the track catches up and starts the continuous retreat.
+    const age = t - departureCue;
     departureSide.crossVectors(up, travel).normalize();
     departureAxis.copy(travel).multiplyScalar(-.43).addScaledVector(departureSide, -.87);
     departureAxis.y += .28;
     departureAxis.normalize();
-    const retreat = ease(t, departureCue + .6, 108);
+    const retreat = ease(age, 2.8, 10);
     departureAxis.applyAxisAngle(up, -.19 * retreat);
     departure.eye.copy(departureAxis).multiplyScalar(mix(15.4, 24.0, retreat));
     departure.aim.copy(travel).multiplyScalar(-.93 - .55 * retreat);
+    const lag = (departureDistance(age) - departureDistance(age - 1.58)) * (1 - ease(age, 3, 8.15));
+    departureView.copy(departure.eye).sub(departure.aim).normalize();
+    departureSlide.copy(travel).addScaledVector(departureView, -departureView.dot(travel));
+    departure.eye.addScaledVector(departureSlide, -lag);
+    departure.aim.addScaledVector(departureSlide, -lag);
     departure.up.copy(up);
     departure.fov = 36;
     departure.near = .055;
@@ -275,7 +295,7 @@ export function createCinematography(models, navigation, traffic) {
       engineAngles.yaw = mix(-0.38, 0.39, ease(t, 16.5, 35));
       engineAngles.pitch = mix(-0.085, 0.043, ease(t, 18, 32));
       const local = navigation.sample('engine', planetState.depth, orbit, engineAngles, distance);
-      if (t > 18.5 && t < 32.4) {
+      if (t > 18.5 && t < 33.2) {
         yard.eye.set(yardCoordinate(t, 1), yardCoordinate(t, 2), yardCoordinate(t, 3));
         yard.aim.set(yardCoordinate(t, 4), yardCoordinate(t, 5), yardCoordinate(t, 6));
         engine.group.localToWorld(yard.eye);
@@ -284,7 +304,7 @@ export function createCinematography(models, navigation, traffic) {
         yard.up.copy(up).applyQuaternion(rig);
         yard.near = 0.00058;
         yard.fov = yardCoordinate(t, 7);
-        return handOver(local, yard, ease(t, 18.5, 20.45) * (1 - ease(t, 28.6, 32.4)));
+        return handOver(local, yard, ease(t, 18.5, 20.45) * (1 - ease(t, 29.0, 33.2)));
       }
       if (t >= 15.5) return local;
       const far = systemLens(sun, t);
