@@ -2021,7 +2021,7 @@ body[data-film-gate='recovery'] .film-quick #start-silent:not([hidden]) {
       </nav>
       <div class="utilities flex items-center">
         <div class="clock"><small>任务时间 UTC</small><time id="mission-clock">2061.02.16  08:42:00</time></div>
-        <button class="icon-btn" id="sound" type="button" aria-label="开启声音"><svg aria-hidden="true"><use href="#i-muted"/></svg><span id="sound-label">开启声音</span></button>
+        <button class="icon-btn" id="sound" type="button" aria-label="开启声音"><svg aria-hidden="true"><use href="#i-sound"/></svg><span id="sound-label">开启声音</span></button>
         <button class="icon-btn" id="fullscreen" title="进入全屏" aria-label="进入全屏"><svg><use href="#i-full"/></svg></button>
       </div>
     </header>
@@ -2401,7 +2401,7 @@ export function createSoundtrack(button, status) {
     const action = enabled ? '静音' : '开启声音';
     label.textContent = action;
     button.setAttribute('aria-label', action);
-    icon.setAttribute('href', enabled ? '#i-sound' : '#i-muted');
+    icon.setAttribute('href', enabled ? '#i-muted' : '#i-sound');
   }
 
   function mute() {

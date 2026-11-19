@@ -16,7 +16,7 @@ export function createSoundtrack(button, status) {
     const action = enabled ? '静音' : '开启声音';
     label.textContent = action;
     button.setAttribute('aria-label', action);
-    icon.setAttribute('href', enabled ? '#i-sound' : '#i-muted');
+    icon.setAttribute('href', enabled ? '#i-muted' : '#i-sound');
   }
 
   function mute() {
