@@ -64,7 +64,7 @@
         <button id="reveal-player" class="reveal-player" aria-controls="film-player" aria-expanded="false" aria-label="显示电影播放控制">
           <svg aria-hidden="true"><use href="#i-play"/></svg><span>播放控制</span>
         </button>
-        <button id="score-unlock" class="score-unlock" aria-controls="music-panel" aria-expanded="false"><svg aria-hidden="true"><use href="#i-sound"/></svg><span>网易云原声</span></button>
+        <button id="score-unlock" class="score-unlock"><svg aria-hidden="true"><use href="#i-sound"/></svg><span>有声播放</span></button>
       </div>
       <div id="space" tabindex="-1" aria-label="三维观测视窗。探索模式下拖动环视，向上滚动推近，向下滚动拉远。触屏可点选目标，双指张开推近、合拢拉远。"></div>
       <div class="screen-shade" aria-hidden="true"></div>
@@ -185,8 +185,14 @@
     <div class="sr-only" id="announce" role="status" aria-live="polite"></div>
     <aside id="music-panel" aria-labelledby="music-title" hidden>
       <div class="music-head"><div><h2 id="music-title">开启新征程</h2><p>阿鲲 ·《流浪地球》电影原声</p></div><button id="music-close" class="icon-btn" aria-label="收起原声播放器" title="收起播放器，继续听"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>
+      <div class="music-links">
+        <button id="music-sync" type="button">开启同步配乐</button>
+        <button id="music-stop" type="button">关闭音乐</button>
+        <button id="music-widget" type="button" hidden>打开网易云播放器</button>
+      </div>
+      <p id="stream-status" role="status"></p>
       <div id="music-service"></div>
-      <div class="music-links"><a href="https://music.163.com/song?id=1343461538" target="_blank" rel="noopener noreferrer">网易云单曲 ↗</a><a href="https://www.douyin.com/music/7579192127771985963" target="_blank" rel="noopener noreferrer">原视频剪辑版 ↗</a><button id="music-stop" type="button">关闭音乐</button></div>
+      <div class="music-links"><a href="https://music.163.com/song?id=1343461538" target="_blank" rel="noopener noreferrer">网易云单曲 ↗</a></div>
       <details id="music-local"><summary>用本机音源同步电影</summary>
         <label>选择音频文件<input id="local-file" type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac"></label>
         <div id="cue-editor" hidden>

@@ -1,125 +1,223 @@
 import { departureCue } from './states.js';
 
-/** Keep the platform's own player and controls in one iframe across film and
- * exploration. The official widget does not expose a public seek API. A file
- * picked by its owner can use the camera clock directly, entirely on-device. */
-export function createSoundtrack() {
+const trackUrl = 'https://music.163.com/song/media/outer/url?id=1343461538.mp3';
+// Cue in the full NetEase release: the bass and drums return at 04:59.8.
+const onlineCue = 299.8;
+const preference = 'atlas-netease-sound';
+
+function rememberOnline(enabled) {
+  try { localStorage.setItem(preference, enabled ? 'on' : 'off'); } catch {}
+}
+function wantsOnline() {
+  try { return localStorage.getItem(preference) === 'on'; } catch { return false; }
+}
+
+export function createSoundtrack(restartWithSound) {
   const byId = id => document.getElementById(id);
   const panel = byId('music-panel');
-  const triggers = [byId('sound'), byId('score-unlock')];
   const service = byId('music-service');
   const music = new Audio();
-  const climax = departureCue;
-  let mode = 'film', time = 0, playing = false, cue = climax, fileUrl = '';
-  let localEnabled = false, opener, lastCorrection = 0, playPending = false, needsGesture = false;
+  const toggle = byId('sound');
+  const start = byId('score-unlock');
+  const streamStatus = byId('stream-status');
+  const manualPlayer = byId('music-widget');
+  let mode = 'film', time = 0, playing = false, cue = departureCue, fileUrl = '';
+  let source = '', enabled = false, lastCorrection = 0, needsGesture = false;
+  let preparing = false, attempt = null;
 
-  function releaseLocal() {
-    localEnabled = false;
+  function setStatus(message, fallback = false) {
+    streamStatus.textContent = message;
+    manualPlayer.hidden = !fallback;
+  }
+
+  function release() {
+    source = '';
+    enabled = preparing = needsGesture = false;
+    attempt = null;
     music.pause();
-    if (fileUrl) {
-      music.removeAttribute('src');
-      music.load();
-      URL.revokeObjectURL(fileUrl);
-      fileUrl = '';
-    }
+    music.removeAttribute('src');
+    music.load();
+    if (fileUrl) URL.revokeObjectURL(fileUrl);
+    fileUrl = '';
     byId('local-file').value = '';
     byId('cue-editor').hidden = true;
     byId('music-hint').textContent = '本机文件仅在此浏览器播放。可将曲中高潮对齐电影 01:38 的地球推进。';
   }
 
   function showOfficial() {
-    if (service.firstElementChild || fileUrl) return;
+    release();
+    rememberOnline(false);
+    if (service.firstElementChild) return;
     const frame = document.createElement('iframe');
     frame.title = '网易云音乐官方播放器 · 开启新征程 · 阿鲲';
     frame.src = 'https://music.163.com/outchain/player?type=2&id=1343461538&auto=0&height=66';
     frame.allow = 'autoplay';
     frame.referrerPolicy = 'strict-origin-when-cross-origin';
     service.append(frame);
+    setStatus('网易云播放器独立播放，请在下方控制。');
   }
 
   function close() {
     if (panel.hidden) return false;
     panel.hidden = true;
-    for (const button of triggers) button.setAttribute('aria-expanded', 'false');
-    const visible = opener && opener.offsetParent && !opener.closest('[inert]') ? opener :
-      (mode === 'film' ? byId('reveal-player') : byId('sound'));
-    visible.focus({preventScroll:true});
+    toggle.setAttribute('aria-expanded', 'false');
+    const target = toggle.offsetParent && !toggle.closest('[inert]') ? toggle : start;
+    target.focus({preventScroll:true});
     return true;
   }
 
-  function open(button) {
+  function open() {
     if (!panel.hidden) { close(); return; }
-    opener = button;
     panel.hidden = false;
-    if (!fileUrl) showOfficial();
-    for (const trigger of triggers) trigger.setAttribute('aria-expanded', 'true');
+    toggle.setAttribute('aria-expanded', 'true');
     byId('music-close').focus({preventScroll:true});
+  }
+
+  function streamUnavailable() {
+    needsGesture = true;
+    setStatus('在线音源暂不可用，可用网易云播放器收听。', true);
+    if (!preparing) return;
+    panel.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+  }
+
+  function tryPlay() {
+    if (attempt) return attempt;
+    const current = music.play().catch(err => {
+      if (attempt !== current || err.name === 'AbortError') return false;
+      if (source === 'online') {
+        if (err.name === 'NotAllowedError') {
+          needsGesture = true;
+          setStatus('点「有声播放」开始同步。');
+        } else streamUnavailable();
+      } else {
+        needsGesture = true;
+        byId('music-hint').textContent = '点「对齐片尾推进」重试播放。';
+      }
+      return false;
+    }).then(result => result !== false).finally(() => {
+      if (attempt === current) attempt = null;
+    });
+    attempt = current;
+    return current;
+  }
+
+  // A trusted click can start playback even on browsers that block autoplay.
+  // Set the movie-derived seek position before asking the browser to play.
+  function startOnline(waitForAudio = false) {
+    service.replaceChildren();
+    if (source !== 'online' || music.error) {
+      release();
+      source = 'online';
+      cue = onlineCue;
+      music.src = trackUrl;
+    }
+    enabled = true;
+    needsGesture = false;
+    preparing = waitForAudio;
+    rememberOnline(true);
+    music.loop = mode === 'explore';
+    if (mode === 'film') music.currentTime = time + cue - departureCue;
+    setStatus('正在连接网易云音源…');
+    return tryPlay();
+  }
+
+  function cancelStart() {
+    streamUnavailable();
+    preparing = false;
+    music.pause();
+  }
+
+  function allowRetry() {
+    if (!music.error) needsGesture = false;
   }
 
   function sync(nextMode, seconds, running, force = false) {
     const switched = mode !== nextMode;
-    mode = nextMode; time = seconds; playing = running;
-    if (!fileUrl || !localEnabled || !Number.isFinite(music.duration)) return;
+    mode = nextMode;
+    time = seconds;
+    playing = running;
+    if (!source || !enabled) return;
+
     music.loop = mode === 'explore';
-    const position = time + cue - climax;
-    const inRange = position >= 0 && position < music.duration;
-    if (mode === 'film' && (force || switched || performance.now()-lastCorrection > 350)) {
+    const position = time + cue - departureCue;
+    const duration = music.duration;
+    const inRange = position >= 0 && (!Number.isFinite(duration) || position < duration);
+    if (mode === 'film' && (force || switched || performance.now() - lastCorrection > 350)) {
       lastCorrection = performance.now();
-      const target = Math.max(0, Math.min(position, music.duration));
-      if (!music.seeking && Math.abs(music.currentTime-target) > .18) music.currentTime = target;
+      const target = Math.max(0, Number.isFinite(duration) ? Math.min(position, duration) : position);
+      if ((force || !music.seeking) && Math.abs(music.currentTime - target) > .15) music.currentTime = target;
     }
-    if (!playing || document.hidden || (mode === 'film' && !inRange)) { music.pause(); return; }
-    if (mode === 'explore' && (switched && music.ended)) music.currentTime = 0;
-    if (music.paused && !playPending && !needsGesture) {
-      playPending = true;
-      music.play().catch(err => {
-        if (err.name === 'AbortError') return;
-        needsGesture = true;
-        byId('music-hint').textContent = '点「对齐片尾推进」重试播放；浏览器需支持该文件格式。';
-      }).finally(() => { playPending = false; });
+    if (preparing && !document.hidden && !switched) return;
+    if (!playing || document.hidden || (mode === 'film' && !inRange)) {
+      music.pause();
+      return;
     }
+    if (mode === 'explore' && switched && music.ended) music.currentTime = 0;
+    if (music.paused && !needsGesture) tryPlay();
   }
 
-  triggers.forEach(button => button.addEventListener('click', () => open(button)));
+  start.addEventListener('click', restartWithSound);
+  toggle.addEventListener('click', open);
+  byId('music-sync').onclick = () => {
+    close();
+    if (mode === 'film') restartWithSound();
+    else startOnline();
+  };
   byId('music-close').onclick = close;
+  manualPlayer.onclick = showOfficial;
   byId('music-stop').onclick = () => {
+    rememberOnline(false);
     service.replaceChildren();
-    releaseLocal();
+    release();
+    setStatus('音乐已关闭。');
     close();
   };
   byId('local-file').onchange = event => {
     const file = event.target.files[0];
     if (!file) return;
-    // Keep the official player available until a replacement file actually decodes.
-    localEnabled = false;
     music.pause();
     if (fileUrl) URL.revokeObjectURL(fileUrl);
+    rememberOnline(false);
+    source = 'local';
+    enabled = preparing = false;
+    attempt = null;
     fileUrl = URL.createObjectURL(file);
     music.src = fileUrl;
     music.load();
   };
   music.onloadedmetadata = () => {
-    if (!fileUrl || !Number.isFinite(music.duration)) return;
+    if (source !== 'local' || !Number.isFinite(music.duration)) return;
     service.replaceChildren();
+    setStatus('');
     const input = byId('cue-time');
-    input.max = String(Math.max(0, Math.floor((music.duration-.01)*10)/10));
-    cue = Math.min(climax, Number(input.max));
-    input.value = String(Math.round(cue*10)/10);
+    input.max = String(Math.max(0, Math.floor((music.duration - .01) * 10) / 10));
+    cue = Math.min(departureCue, Number(input.max));
+    input.value = String(Math.round(cue * 10) / 10);
     byId('cue-editor').hidden = false;
     byId('music-hint').textContent = '填入这份录音高潮出现的秒数，然后点「对齐片尾推进」。';
   };
+  music.onplaying = () => {
+    if (source === 'online') setStatus('配乐随电影播放、暂停和跳转。');
+  };
   music.onerror = () => {
-    if (!fileUrl) return;
-    releaseLocal(); showOfficial();
-    byId('music-hint').textContent = '浏览器未能解码这份音频。可换用 MP3、M4A 或 WAV。';
+    if (source === 'online') streamUnavailable();
+    else if (source === 'local') {
+      release();
+      byId('music-hint').textContent = '浏览器未能解码这份音频。可换用 MP3、M4A 或 WAV。';
+    }
   };
   byId('apply-cue').onclick = () => {
     const input = byId('cue-time');
     if (input.value === '' || !input.reportValidity()) return;
-    cue = Number(input.value); localEnabled = true; needsGesture = false;
-    sync(mode,time,playing,true);
+    cue = Number(input.value);
+    enabled = true;
+    needsGesture = false;
+    sync(mode, time, playing, true);
     byId('music-hint').textContent = '本机音源已接入。电影暂停或跳章时，音乐跟随画面；自由探索时循环播放。';
   };
-  window.addEventListener('pagehide', e => { if (!e.persisted) releaseLocal(); });
-  return {sync, close};
+  window.addEventListener('pagehide', e => {
+    if (!e.persisted && fileUrl) URL.revokeObjectURL(fileUrl);
+  });
+  return {sync, close, startOnline, cancelStart, allowRetry, wantsOnline, resumeStart() { preparing = false; }};
 }

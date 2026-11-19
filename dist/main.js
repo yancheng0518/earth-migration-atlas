@@ -8,7 +8,7 @@ const small = matchMedia('(max-width: 760px), (max-height: 530px)');
 const jumpButtons = [...document.querySelectorAll('[data-chapter]')];
 const destinations = [...document.querySelectorAll('[data-go]')];
 const terms = Object.keys(dossiers);
-const soundtrack = createSoundtrack();
+const soundtrack = createSoundtrack(restartWithSound);
 const startTimes = chapters.map((_, i) => chapters.slice(0, i).reduce((n, c) => n + c.length, 0));
 const total = startTimes.at(-1) + chapters.at(-1).length;
 const clock = { seconds: 0 },
@@ -30,6 +30,7 @@ let selected = 'earth',
   pausedForTab = false;
 let filmPrint = null,
   printStarting = false;
+let startingWithSound = false;
 const live = { thrust: 0, speed: 29.78, au: 1, spin: 15.04, alt: 0, delay: 499 };
 const fields = Object.keys(live);
 const fmt = (seconds) =>
@@ -311,6 +312,32 @@ function enterFilm(replay = false) {
   paintFilm(true);
   playButton();
 }
+async function restartWithSound() {
+  if (!ready || startingWithSound) return;
+  startingWithSound = true;
+  const button = $('score-unlock');
+  button.disabled = true;
+  timeline.pause();
+  if (mode !== 'film') setMode('film');
+  done = false;
+  $('ending').hidden = true;
+  timeline.time(0);
+  paintFilm(true);
+  const audioReady = soundtrack.startOnline(true);
+  let timeout;
+  await Promise.race([audioReady, new Promise(resolve => {
+    timeout = setTimeout(() => {
+      soundtrack.cancelStart();
+      resolve();
+    }, 8000);
+  })]);
+  clearTimeout(timeout);
+  startingWithSound = false;
+  button.disabled = false;
+  soundtrack.resumeStart();
+  if (mode !== 'film' || document.hidden) return;
+  if (timeline.paused() && clock.seconds === 0) enterFilm();
+}
 function seek(s) {
   if (!ready) return;
   if (done) {
@@ -324,6 +351,7 @@ function seek(s) {
 }
 function toggleFilm() {
   if (mode !== 'film' || !ready) return;
+  soundtrack.allowRetry();
   if (done) return enterFilm(true);
   timeline.paused(!timeline.paused());
   playButton();
@@ -605,3 +633,4 @@ progress(100, '观测系统就绪');
 ready = true;
 $('loading').hidden = true;
 enterFilm(true);
+if (soundtrack.wantsOnline()) soundtrack.startOnline();
