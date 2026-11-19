@@ -152,7 +152,7 @@ export function createNavigation(models) {
   }
   function zoom(amount, candidate) {
     queued = null;
-    if (depth <= 0 && destination <= 0 && destination + amount > 0 && angles[candidate]) route = candidate;
+    if (depth <= 0.015 && destination <= 0.015 && destination + amount > 0 && angles[candidate]) route = candidate;
     destination = clamp(destination + amount, -2, 1);
   }
   function drag(x, y, extent) {

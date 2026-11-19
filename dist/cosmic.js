@@ -86,10 +86,13 @@ const planetFragment = `
     float lambert = pow(max(0., terminator), .72);
     float rim = pow(1.-max(0., dot(n, normalize(cameraPosition-positionWorld))), 5.);
     float bend = local.y + .035 * sin(7. * local.x) * cos(5. * local.z);
-    float bands = .47 + .21 * sin(bend * 28.) + .15 * sin(bend * 59.) + .095 * sin(bend * 107.);
+    float bands = .48 + .21 * sin(bend * 28.) + .15 * sin(bend * 59.) + .07 * sin(bend * 107.);
     float land = .5 + .21 * sin(15.*local.x+11.*local.z) * sin(14.*local.y+3.*local.x)
       + .12 * sin(31.*local.y+34.*local.x) * cos(34.*local.z);
     vec3 base = mix(low, high, mix(land, bands, banded));
+    // The wide bands can still show a storm when the body fills the lens.
+    float storm = length((local.xy - vec2(.28,-.24)) * vec2(4.6,12.));
+    base = mix(base, base * vec3(1.18,.70,.49), (1.-smoothstep(.1,1.,storm))*banded*step(.22,local.z));
     vec3 lit = base * (.059 + 1.26 * lambert);
     lit += high * (smoothstep(-.14,.55,terminator) * .24 + .027) * rim;
     lit = mix(lit, base * .5, nodal * .48);
@@ -97,6 +100,100 @@ const planetFragment = `
     #include <colorspace_fragment>
   }
 `;
+
+const solarNoise = `
+  float seed(vec3 p) {
+    p=fract(p*.3183099+vec3(.13,.33,.57));
+    p*=17.;
+    return fract(p.x*p.y*p.z*(p.x+p.y+p.z));
+  }
+  float ripple(vec3 x) {
+    vec3 i=floor(x), f=fract(x);
+    vec3 u=f*f*(3.-2.*f);
+    return mix(
+      mix(mix(seed(i),seed(i+vec3(1,0,0)),u.x),mix(seed(i+vec3(0,1,0)),seed(i+vec3(1,1,0)),u.x),u.y),
+      mix(mix(seed(i+vec3(0,0,1)),seed(i+vec3(1,0,1)),u.x),mix(seed(i+vec3(0,1,1)),seed(i+1.),u.x),u.y),u.z);
+  }
+`;
+
+function solarPhotosphere(sphere) {
+  const uniforms = { age: { value: 0 }, visibility: { value: 0 } };
+  const mesh = new THREE.Mesh(sphere, new THREE.ShaderMaterial({
+    uniforms,
+    depthWrite: false,
+    transparent: true,
+    vertexShader: planetVertex,
+    fragmentShader: `
+      uniform float age, visibility;
+      varying vec3 normalWorld, normalLocal, positionWorld;
+      ${solarNoise}
+      void main(){
+        vec3 n=normalize(normalLocal), eye=normalize(cameraPosition-positionWorld);
+        float edge=max(0.,dot(eye,normalize(normalWorld)));
+        vec3 p=n*11.+vec3(age*.048,0.,age*-.015);
+        float convection=ripple(p*2.15)+.47*ripple(p*5.4)+.22*ripple(p*11.9);
+        float activity=ripple(p*.31+vec3(0.,5.2,2.9));
+        float gap=smoothstep(.15,.56,convection);
+        float filament=1.-smoothstep(.02,.46,abs(convection-.72));
+        vec3 ember=vec3(.92,.13,.016);
+        vec3 flame=vec3(2.68,1.06,.24);
+        vec3 color=mix(ember,flame,clamp(gap*.69+activity*.38,0.,1.));
+        color=(color+.46*flame*filament*activity)*(.66+.48*pow(edge,.44));
+        gl_FragColor=vec4(color,visibility);
+        #include <colorspace_fragment>
+      }
+    `,
+  }));
+  mesh.scale.setScalar(5.8);
+  mesh.name = 'Convecting solar photosphere';
+  mesh.renderOrder = 12;
+  return { mesh, uniforms };
+}
+
+function solarCorona() {
+  const uniforms = { gain: { value: 0 }, age: { value: 0 } };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      varying vec2 point;
+      void main(){
+        point=uv*2.-1.;
+        vec4 center=modelViewMatrix*vec4(0.,0.,0.,1.);
+        center.xy+=position.xy;
+        gl_Position=projectionMatrix*center;
+      }
+    `,
+    fragmentShader: `
+      uniform float gain,age;
+      varying vec2 point;
+      ${solarNoise}
+      void main(){
+        float r=length(point), a=atan(point.y,point.x);
+        float height=max(0.,r-.125);
+        float wind=ripple(vec3(cos(a)*8.+1.8*height,sin(a)*8.,height*5.-age*.035));
+        float lobe=.5+.5*cos(4.*a+2.3*cos(3.*a+age*.035));
+        float ray=pow(wind,.95+2.*height)*(.22+.78*lobe);
+        float scald=exp(-height*25.)*(.56+.44*wind);
+        float stream=ray*exp(-height*(5.7-2.2*lobe));
+        float arch=pow(max(0.,sin(17.*a+22.*height+wind*1.45)),4.)*
+          exp(-height*12.)*smoothstep(.52,.93,wind);
+        float alpha=(scald*.30+stream*.43+arch*.45)*smoothstep(.108,.142,r)*
+          (1.-smoothstep(.72,1.,r));
+        vec3 tint=mix(vec3(1.52,.68,.17),vec3(.46,.11,.021),smoothstep(.02,.82,height));
+        gl_FragColor=vec4(tint,alpha*gain);
+        #include <colorspace_fragment>
+      }
+    `,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(92, 92), material);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 10;
+  mesh.name = 'Solar corona and magnetic streamers';
+  return { mesh, uniforms };
+}
 
 function stellarGlow(size, color, drawOrder) {
   const uniforms = { gain: { value: 0 }, tint: { value: new THREE.Color(color) } };
@@ -132,6 +229,105 @@ function stellarGlow(size, color, drawOrder) {
   return { mesh, uniforms };
 }
 
+function debrisBelt(inner, outer, icy, routeRadius) {
+  const random = seeded(icy ? 54711 : 199238);
+  const positions = [], colors = [], sizes = [], lights = [];
+  const density = icy ? 1850 : 2750;
+  const midpoint = (inner + outer) * .5;
+  for (let i = 0; i < density; i++) {
+    const a = TAU * random();
+    const variation = (random() + random() + random()) / 3;
+    const resonance = Math.sin(a * (icy ? 2 : 5) + .3);
+    const clump = Math.abs(random() - .5) < .41;
+    const edge = clump ? .75 + .25 * resonance : 1;
+    const r = routeRadius(mix(midpoint, mix(inner, outer, variation), edge));
+    const y = (random() + random() - 1) * (icy ? 8.2 : 2.9) + Math.sin(a * 2. + .9) * (icy ? 2.5 : .85);
+    const tint = icy ? [mix(.24,.49,random()), mix(.42,.72,random()), .89] :
+      [mix(.60,.93,random()), mix(.33,.71,random()), mix(.17,.44,random())];
+    positions.push(Math.cos(a) * r, y, Math.sin(a) * r * (icy ? .93 : .98));
+    colors.push(...tint);
+    sizes.push(.78 + random() ** 5 * (icy ? 1.65 : 2.05));
+    lights.push(.10 + random() ** 2 * (icy ? .27 : .60));
+  }
+  const particles = pointCloud(positions, colors, sizes, lights, 380, icy ? 'Kuiper belt ice bodies' : 'Main asteroid belt rocks');
+  const width = routeRadius(outer) - routeRadius(inner);
+  const radius = routeRadius(midpoint);
+  const innerRadius = radius - width * .54;
+  const outerRadius = radius + width * .54;
+  const uniforms = { opacity: { value: 0 }, start: { value: innerRadius }, width: { value: outerRadius - innerRadius },
+    tint: { value: new THREE.Color(icy ? 0x4e8dd4 : 0x9f7250) } };
+  const disc = new THREE.Mesh(new THREE.RingGeometry(innerRadius, outerRadius, 146, 5), new THREE.ShaderMaterial({
+    uniforms,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      varying vec2 point;
+      void main(){point=position.xy; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}
+    `,
+    fragmentShader: `
+      varying vec2 point;
+      uniform vec3 tint;
+      uniform float opacity,start,width;
+      ${solarNoise}
+      void main(){
+        float track=(length(point)-start)/width;
+        float envelope=4.*track*(1.-track);
+        float lane=ripple(vec3(point*.18,.8));
+        float strands=.58+.28*sin(32.*track+lane*1.9)+.14*cos(76.*track);
+        float density=envelope*envelope*strands*lane*lane;
+        gl_FragColor=vec4(tint,density*opacity);
+        #include <colorspace_fragment>
+      }
+    `,
+  }));
+  disc.rotation.x = -Math.PI / 2;
+  disc.renderOrder = -2;
+  const group = new THREE.Group();
+  group.add(disc, particles.mesh);
+  return { group, particles, uniforms };
+}
+
+function departureTrack() {
+  // A fictional transfer arc, in world coordinates. The inhabited Earth's
+  // origin is the first vertex and does not move as the viewer zooms out.
+  const curve = new THREE.CubicBezierCurve3(V(0,0,0), V(49,-3,-8), V(26,9,-102), V(-105,27,-174));
+  const samples = curve.getPoints(145);
+  const positions = new THREE.Float32BufferAttribute(samples.flatMap(point => point.toArray()), 3);
+  const fraction = new THREE.Float32BufferAttribute(samples.map((_, i) => i / (samples.length - 1)), 1);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', positions);
+  geometry.setAttribute('fraction', fraction);
+  const uniforms = { opacity: { value: 0 }, age: { value: 0 } };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    depthWrite: false,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      attribute float fraction;
+      varying float t;
+      void main(){t=fraction;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}
+    `,
+    fragmentShader: `
+      varying float t;
+      uniform float age,opacity;
+      void main(){
+        float trail=(1.-smoothstep(.54,1.,t))*smoothstep(.0,.04,t);
+        float dash=.25+.75*smoothstep(.21,.49,fract(t*36.));
+        float beacon=pow(max(0.,cos(6.283*(t*2.9-age*.22))),38.);
+        gl_FragColor=vec4(mix(vec3(.09,.64,.95),vec3(.84,1.1,1.2),beacon),trail*max(dash,beacon)*opacity);
+        #include <colorspace_fragment>
+      }
+    `,
+  });
+  const line = new THREE.Line(geometry, material);
+  line.renderOrder = 9;
+  line.name = 'Earth migration trajectory (schematic)';
+  return { line, uniforms };
+}
+
 function makeSolarSystem() {
   const group = new THREE.Group();
   group.name = 'Sun and the eight orbital paths';
@@ -141,10 +337,10 @@ function makeSolarSystem() {
   ecliptic.position.copy(solarPosition);
   group.add(ecliptic);
   const sphere = new THREE.SphereGeometry(1, 30, 18);
-  const sun = new THREE.Mesh(sphere, new THREE.MeshBasicMaterial({ color: new THREE.Color(1.65, .71, .24), transparent: true, depthWrite: false }));
-  const sunAura = stellarGlow(43, 0xffad65, 6);
-  sun.scale.setScalar(3.75);
-  ecliptic.add(sun, sunAura.mesh);
+  const sun = solarPhotosphere(sphere);
+  const corona = solarCorona();
+  const sunAura = stellarGlow(66, 0xf6a167, 8);
+  ecliptic.add(sun.mesh, corona.mesh, sunAura.mesh);
 
   // Map the AU ladder with the same monotonic power curve for every orbit.
   // The installed 2.2-unit Earth stays real; the other discs are enlarged
@@ -165,6 +361,11 @@ function makeSolarSystem() {
   ];
   const orbitPositions = [], orbitColors = [];
   const routeRadius = au => AU * au ** .435;
+  const mainBelt = debrisBelt(2.1, 3.35, false, routeRadius);
+  const transNeptunian = debrisBelt(31, 50, true, routeRadius);
+  ecliptic.add(mainBelt.group, transNeptunian.group);
+  const escape = departureTrack();
+  group.add(escape.line);
   const planets = [];
   const rings = new THREE.RingGeometry(5.75, 10.2, 96, 3);
   const ringMaterial = new THREE.ShaderMaterial({
@@ -179,20 +380,24 @@ function makeSolarSystem() {
       void main() {
         float r = (length(rr)-5.75)/4.45;
         float density = smoothstep(.0,.13,r) * (1.-smoothstep(.92,1.,r));
-        density *= .64+.15*sin(r*47.)+.11*sin(r*94.)-.49*exp(-pow((r-.65)*19.,2.));
-        gl_FragColor=vec4(.724,.595,.408,density * alpha);
+        float cassini=1. - .86 * exp(-pow((r - .65) * 23.,2.));
+        density *= (.64+.15*sin(r*47.)+.11*sin(r*94.))*cassini;
+        vec3 outside=vec3(.38,.28,.17), inside=vec3(.89,.72,.49);
+        gl_FragColor=vec4(mix(inside,outside,smoothstep(.36,.93,r)),density * alpha);
+        #include <colorspace_fragment>
       }
     `,
   });
 
   for (const [name, au, size, low, high, banded, angle, motion] of planetData) {
     const radius = routeRadius(au);
-    const tint = name === 'Earth' ? [0.28, .53, .73] : [0.34, .46, .52];
+    const tint = name === 'Earth' ? [.28, .66, .85] : au < 2 ? [.32, .40, .50] : [.25, .40, .54];
     for (let i = 0; i < 160; i++) {
       for (const j of [i, i + 1]) {
         const a = j * TAU / 160;
         orbitPositions.push(radius * Math.cos(a), 0, radius * Math.sin(a));
-        orbitColors.push(...tint);
+        const grazing = .54 + .46 * Math.pow(.5 + .5 * Math.cos(a - .9), 1.8);
+        orbitColors.push(tint[0] * grazing, tint[1] * grazing, tint[2] * grazing);
       }
     }
     if (name === 'Earth') continue;
@@ -213,8 +418,19 @@ function makeSolarSystem() {
       band.rotation.set(Math.PI * .57, -.28, -.17);
       node.add(band);
     }
+    const satellites = [];
+    if (name === 'Jupiter' || name === 'Saturn') {
+      const count = name === 'Jupiter' ? 4 : 2;
+      const moonMaterial = new THREE.MeshBasicMaterial({ color: 0x8e9ca7, transparent: true, opacity: 0 });
+      for (let i = 0; i < count; i++) {
+        const moon = new THREE.Mesh(sphere, moonMaterial);
+        moon.scale.setScalar(.27 + .11 * i);
+        node.add(moon);
+        satellites.push(moon);
+      }
+    }
     ecliptic.add(node);
-    planets.push({ node, globe, uniforms, radius, angle, motion });
+    planets.push({ node, globe, uniforms, radius, angle, motion, satellites, size });
   }
   const orbits = new THREE.BufferGeometry();
   orbits.setAttribute('position', new THREE.Float32BufferAttribute(orbitPositions, 3));
@@ -225,22 +441,41 @@ function makeSolarSystem() {
   orbitLines.renderOrder = -1;
   ecliptic.add(orbitLines);
 
-  function update(scale, time) {
+  function update(scale, time, height) {
     group.visible = scale > .08 && scale < 1.48;
     if (!group.visible) return;
     const show = ease(scale, .09, .43) * (1 - ease(scale, 1.18, 1.48));
     const lines = ease(scale, .28, .68) * (1 - ease(scale, 1.05, 1.44));
-    sun.material.opacity = show;
-    sunAura.uniforms.gain.value = show * .72;
-    orbitLines.material.opacity = lines * .36;
+    sun.uniforms.visibility.value = show;
+    sun.uniforms.age.value = corona.uniforms.age.value = time;
+    sunAura.uniforms.gain.value = show * .52;
+    corona.uniforms.gain.value = show * 1.1;
+    orbitLines.material.opacity = lines * .41;
+    escape.uniforms.opacity.value = lines * .78;
+    escape.uniforms.age.value = time;
+    const pixelRatio = clamp(height / 560, .78, 1.5);
+    const debris = show * ease(scale, .29, .58) * (1 - ease(scale, 1.08, 1.39));
+    mainBelt.particles.uniforms.strength.value = debris * .82;
+    mainBelt.uniforms.opacity.value = debris * .30;
+    transNeptunian.particles.uniforms.strength.value = debris * .70;
+    transNeptunian.uniforms.opacity.value = debris * .35;
+    mainBelt.particles.uniforms.pixelRatio.value = transNeptunian.particles.uniforms.pixelRatio.value = pixelRatio;
+    mainBelt.group.rotation.y = time * .0024;
+    transNeptunian.group.rotation.y = time * .0013;
     ringMaterial.uniforms.alpha.value = show * .85;
     earthMarker.uniforms.gain.value = .39 * ease(scale, .58, .91) * (1 - ease(scale, 1.17, 1.48));
-    for (const { node, globe, uniforms, radius, angle, motion } of planets) {
+    for (const { node, globe, uniforms, radius, angle, motion, satellites, size } of planets) {
       const a = angle + time * motion * .033;
       node.position.set(radius * Math.cos(a), 0, radius * Math.sin(a));
       globe.rotation.y = time * .014;
       uniforms.fading.value = show;
       uniforms.nodal.value = ease(scale, .77, 1.27);
+      for (const [i, moon] of satellites.entries()) {
+        const aMoon = i * 2.9 + time * (.15 - i * .023);
+        const moonRadius = size * (1.9 + i * .48);
+        moon.position.set(moonRadius * Math.cos(aMoon), .68 * Math.sin(aMoon * 1.13 + i), moonRadius * Math.sin(aMoon));
+        moon.material.opacity = show * .73;
+      }
     }
   }
   return { group, update };
@@ -433,7 +668,7 @@ export function createCosmic() {
   function update(scale, time, camera, height) {
     group.visible = scale > .08;
     if (!group.visible) return;
-    solar.update(scale, time);
+    solar.update(scale, time, height);
     const nearby = ease(scale, .96, 1.32) * (1 - ease(scale, 1.83, 2.12));
     const disc = ease(scale, 1.10, 1.58);
     const homeLight = ease(scale, 1.05, 1.4);

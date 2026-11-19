@@ -147,16 +147,13 @@
         <div class="explore-caption">
           <div><p id="hero-en">THE EARTH MIGRATION PROJECT</p><h1 id="hero-title">地球全景</h1></div>
           <div class="orbit-shortcuts">
-            <button class="destination" data-go="elevator" aria-label="太空电梯" aria-pressed="false"><span>太空电梯</span></button>
-            <button class="destination" data-go="station" aria-label="轨道空间站" aria-pressed="false"><span>空间站</span></button>
             <button id="show-info" class="outline-btn" aria-controls="info-panel" aria-expanded="false" aria-label="目标档案"><svg aria-hidden="true"><use href="#i-info"/></svg><span>档案</span></button>
             <button id="telemetry-toggle" class="film-hud-toggle" aria-expanded="false" aria-controls="hud" aria-label="切换航行遥测">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16V8m4 10V6m4 8v-4m4 7V7m4 8V9"/></svg><span id="telemetry-label">展开遥测</span>
             </button>
           </div>
         </div>
-        <nav class="destinations scale-route" aria-label="沿航线切换观测尺度">
-          <button class="destination" data-go="engine" aria-pressed="false"><span>行星发动机</span></button>
+        <nav class="destinations scale-route" aria-label="切换观测尺度">
           <button class="destination" data-go="earth" aria-pressed="true"><span>地球</span></button>
           <button class="destination" data-go="solar" aria-pressed="false"><span>太阳系</span></button>
           <button class="destination" data-go="galaxy" aria-pressed="false"><span>银河</span></button>
@@ -165,7 +162,7 @@
     </div>
 
     <footer class="statusline flex items-center justify-between"><div><i></i><span id="render-state">实时模拟</span><span class="status-slash">/</span><span id="view-code">UEG 2061</span></div>
-      <div class="hint"><span class="mouse-hint">拖动环视 · 滚轮推近 / 拉远</span><span class="touch-hint">单指环视 · 双指张开推近、合拢拉远</span></div></footer>
+      <div class="hint"><span class="mouse-hint">拖动环视 · 滚轮缩放<span class="facility-hint"> · 点击进入设施</span></span><span class="touch-hint">单指环视 · 双指缩放<span class="facility-hint"> · 轻触进入设施</span></span></div></footer>
 
     <aside id="info-panel" class="archive-sheet" role="dialog" aria-labelledby="info-title" hidden>
       <div class="archive-top flex items-center justify-between"><button id="info-handle" class="drag-handle flex items-center" title="拖动面板，或使用方向键移动" aria-label="移动档案面板，可用方向键移动"><svg><use href="#i-grip"/></svg>观测档案</button><button id="info-close" class="icon-btn" title="关闭档案" aria-label="关闭目标档案"><svg><use href="#i-close"/></svg></button></div>

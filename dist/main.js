@@ -8,6 +8,10 @@ const small = matchMedia('(max-width: 760px), (max-height: 530px)');
 const jumpButtons = [...document.querySelectorAll('[data-chapter]')];
 const destinations = [...document.querySelectorAll('[data-go]')];
 const terms = Object.keys(dossiers);
+const earthFacilities = ['engine', 'elevator', 'station'];
+const topbar = document.querySelector('.topbar');
+const deck = document.querySelector('.deck');
+const coarsePointer = matchMedia('(pointer: coarse)');
 const soundtrack = createSoundtrack(startWithSound);
 const startTimes = chapters.map((_, i) => chapters.slice(0, i).reduce((n, c) => n + c.length, 0));
 const total = startTimes.at(-1) + chapters.at(-1).length;
@@ -67,6 +71,7 @@ function onScene(id) {
   document.body.dataset.view = id;
   put('view-code', labels[id]);
   if (mode === 'explore' && dossiers[id] && selected !== id) describeDestination(id);
+  if (staticMode) updateMarkers({});
 }
 function showImage(id) {
   if (current !== id || !$('space').style.backgroundImage) {
@@ -407,7 +412,8 @@ function describeDestination(id) {
   const d = dossiers[id];
   put('hero-title', d.title);
   put('hero-en', d.en);
-  destinations.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.go === id)));
+  const scale = id === 'solar' || id === 'galaxy' ? id : 'earth';
+  destinations.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.go === scale)));
   dataTween?.kill();
   const v = exploreReadings[id];
   dataTween = gsap.to(live, {
@@ -515,33 +521,55 @@ handle.addEventListener('keydown', (e) => {
 });
 window.addEventListener('resize', keepOnScreen);
 const markers = {};
-for (const id of ['engine', 'elevator', 'station']) {
+for (const id of earthFacilities) {
   const b = document.createElement('button');
   b.className = 'world-marker';
   b.dataset.facility = id;
   b.hidden = true;
-  b.textContent = dossiers[id].title + ' ↗';
-  b.setAttribute('aria-label', '查看' + dossiers[id].title + '档案');
-  b.addEventListener('click', () => showInfo(id));
+  const pin = document.createElement('i');
+  pin.setAttribute('aria-hidden', 'true');
+  b.append(pin, id === 'station' ? '空间站' : dossiers[id].title);
+  b.setAttribute('aria-label', '前往' + dossiers[id].title);
+  b.addEventListener('click', (event) => {
+    choose(id);
+    if (event.detail === 0) $('space').focus({ preventScroll: true });
+  });
   $('markers').append(b);
   markers[id] = b;
 }
 function updateMarkers(coords) {
+  if (staticMode) {
+    for (const marker of Object.values(markers)) marker.hidden = mode !== 'explore' || current !== 'earth';
+    return;
+  }
   const shown = [];
+  const frame = $('space').getBoundingClientRect();
+  const headerBounds = topbar.getBoundingClientRect();
+  const deckBounds = deck.getBoundingClientRect();
+  const w = coarsePointer.matches ? 91 : 82;
+  const h = coarsePointer.matches ? 44 : 27;
   for (const [id, b] of Object.entries(markers)) {
-    const p = coords[id],
-      mobile = small.matches;
+    const p = coords[id];
     b.hidden =
-      !p ||
-      p[0] < 12 ||
-      p[0] > innerWidth - 100 ||
-      p[1] < innerHeight * 0.19 ||
-      p[1] > innerHeight * (mobile ? 0.61 : 0.71) ||
-      shown.some((q) => Math.abs(q[0] - p[0]) < 90 && Math.abs(q[1] - p[1]) < 29);
-    if (!b.hidden) {
-      shown.push(p);
-      b.style.transform = 'translate(' + Math.round(p[0] + 10) + 'px,' + Math.round(p[1] - 10) + 'px)';
-    }
+      mode !== 'explore' || !p ||
+      p[1] + frame.top < headerBounds.bottom || p[1] + frame.top > deckBounds.bottom;
+    if (b.hidden) continue;
+    const x = clamp(p[0] + 10, 12, frame.width - w - 8);
+    const minY = Math.max(8, headerBounds.bottom - frame.top + 5);
+    const maxY = Math.max(minY, deckBounds.top - frame.top - h - 5);
+    const y = clamp(p[1] - h / 2, minY, maxY);
+    const choices = [y, y - h - 4, y + h + 4, y - 2 * (h + 4), y + 2 * (h + 4)];
+    const spot = choices.find(c => c >= minY && c <= maxY &&
+      shown.every(q => Math.abs(q.x - x) >= w || Math.abs(q.y - c) >= h + 3));
+    b.hidden = spot === undefined;
+    if (b.hidden) continue;
+    shown.push({x,y:spot});
+    const dx = p[0] - x, dy = p[1] - (spot + h/2);
+    b.style.setProperty('--pin-x', dx + 'px');
+    b.style.setProperty('--pin-y', dy + 'px');
+    b.style.setProperty('--pin-length', Math.hypot(dx, dy) + 'px');
+    b.style.setProperty('--pin-angle', Math.atan2(dy, dx) + 'rad');
+    b.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(spot) + 'px)';
   }
 }
 // A tap immediately after orbit dragging may lose its synthetic click on Android.
@@ -649,7 +677,10 @@ try {
     reduced,
     onProgress: progress,
     onScene,
-    onInspect: showInfo,
+    onInspect: (id) => {
+      if (earthFacilities.includes(id) && selected !== id) choose(id);
+      else showInfo(id);
+    },
     onHover: (id) => {
       $('space').dataset.hover = id || '';
     },

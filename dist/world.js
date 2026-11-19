@@ -97,6 +97,8 @@ export async function openWorld({
     scene.add(model.group);
   }
   const navigation = createNavigation(models);
+  const facilityHits = facilities.flatMap(id => models[id].pickables);
+  const surfaceHit = earth.pickables[0];
   const traffic = createTraffic({ earth, elevator: models.elevator, station: models.station });
   scene.add(traffic.group);
   const cinematography = createCinematography(models, navigation, traffic);
@@ -348,22 +350,30 @@ export async function openWorld({
     }
     return result;
   }
-  function hit() {
+  function hit(includeDetails = false) {
     if (!exploring || visibleScale > 0.25) return null;
     // The orbital proxies are useful at a distance. Inside a terminal their
     // radius can enclose the camera: use only the actual model at this scale.
     const deep = navigation.depth > 0.55;
-    const entries = deep ? [...models[navigation.route].pickables, earth.pickables[0]] : earth.pickables;
+    const entries = deep ? [...models[navigation.route].pickables, surfaceHit] : earth.pickables;
     ray.setFromCamera(pointer, camera);
-    const hits = ray.intersectObjects(
-      entries.map((e) => e.object),
-      true,
-    );
-    if (hits.length)
-      for (let node = hits[0].object; node; node = node.parent) {
-        const entry = entries.find((e) => e.object === node);
-        if (entry) return entry.id;
+    let nearest = ray.intersectObjects(entries.map(entry => entry.object), true)[0];
+    let candidates = entries;
+    // The proxies keep hover inexpensive. An explicit click also checks
+    // protruding parts outside the proxies, such as the station's solar wings.
+    if (includeDetails && !deep) {
+      for (const entry of facilityHits) {
+        if (!models[entry.id].group.visible) continue;
+        const detail = ray.intersectObject(entry.object, true).find(result => result.object.visible);
+        if (!detail || (nearest && detail.distance >= nearest.distance)) continue;
+        nearest = detail;
+        candidates = facilityHits;
       }
+    }
+    for (let node = nearest?.object; node; node = node.parent) {
+      const entry = candidates.find(candidate => candidate.object === node);
+      if (entry) return entry.id;
+    }
     return null;
   }
   function zoomTarget() {
@@ -442,7 +452,7 @@ export async function openWorld({
     const f = fingers.get(e.pointerId);
     if (f && !f.dragged && Math.hypot(e.clientX - f.startX, e.clientY - f.startY) < 6) {
       locate(e.clientX, e.clientY);
-      const id = hit();
+      const id = hit(true);
       if (id) {
         highlight(id);
         onInspect(id);
