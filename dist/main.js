@@ -2,6 +2,7 @@ import { chapters, telemetry, dossiers, liftProgress, ignitionDemand, subtitleCu
 import { createSoundtrack } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
+const assetRoot = document.body.dataset.assetRoot || './';
 const gsap = window.gsap,
   reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const small = matchMedia('(max-width: 760px), (max-height: 530px)');
@@ -76,7 +77,7 @@ function onScene(id) {
 function showImage(id) {
   if (current !== id || !$('space').style.backgroundImage) {
     const path = 'assets/previews/' + id + '.webp';
-    $('space').style.backgroundImage = 'url("' + (window.atlasAsset?.(path) || './' + path) + '")';
+    $('space').style.backgroundImage = 'url("' + (window.atlasAsset?.(path) || assetRoot + path) + '")';
     onScene(id);
   }
 }
@@ -92,7 +93,7 @@ function loseWebGL(id) {
   filmPrint.preload = 'auto';
   filmPrint.setAttribute('aria-hidden', 'true');
   const printPath = 'assets/previews/mission-film.mp4';
-  filmPrint.src = window.atlasAsset?.(printPath) || './' + printPath;
+  filmPrint.src = window.atlasAsset?.(printPath) || assetRoot + printPath;
   filmPrint.addEventListener('loadeddata', () => filmPrint.classList.add('decoded'));
   filmPrint.addEventListener('error', () => filmPrint.classList.remove('decoded'));
   $('space').append(filmPrint);
