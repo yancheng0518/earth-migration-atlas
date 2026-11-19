@@ -68,7 +68,7 @@
         <button id="start-silent" type="button" hidden>静音观看</button>
         <p id="film-start-status" class="sr-only" role="status"></p>
       </div>
-      <div id="space" tabindex="-1" aria-label="三维观测视窗。探索模式下拖动环视，向上滚动推近，向下滚动拉远。触屏可点选目标，双指张开推近、合拢拉远。"></div>
+      <div id="space" tabindex="-1" aria-label="三维观测视窗。拖动环视，滚轮或双指缩放。对准可见设施放大即可飞近，也可以点选设施。"></div>
       <div class="screen-shade" aria-hidden="true"></div>
       <div id="curtain" aria-hidden="true"></div>
       <div id="markers" aria-label="场景内观测目标"></div>
@@ -162,7 +162,7 @@
     </div>
 
     <footer class="statusline flex items-center justify-between"><div><i></i><span id="render-state">实时模拟</span><span class="status-slash">/</span><span id="view-code">UEG 2061</span></div>
-      <div class="hint"><span class="mouse-hint">拖动环视 · 滚轮缩放<span class="facility-hint"> · 点击进入设施</span></span><span class="touch-hint">单指环视 · 双指缩放<span class="facility-hint"> · 轻触进入设施</span></span></div></footer>
+      <div class="hint"><span class="mouse-hint">拖动环视 · 滚轮缩放<span class="facility-hint"> · 对准设施放大或点击进入</span></span><span class="touch-hint">单指环视 · 双指缩放<span class="facility-hint"> · 对准设施放大或轻触进入</span></span></div></footer>
 
     <aside id="info-panel" class="archive-sheet" role="dialog" aria-labelledby="info-title" hidden>
       <div class="archive-top flex items-center justify-between"><button id="info-handle" class="drag-handle flex items-center" title="拖动面板，或使用方向键移动" aria-label="移动档案面板，可用方向键移动"><svg><use href="#i-grip"/></svg>观测档案</button><button id="info-close" class="icon-btn" title="关闭档案" aria-label="关闭目标档案"><svg><use href="#i-close"/></svg></button></div>

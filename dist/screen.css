@@ -168,7 +168,7 @@ body[data-mode='explore'] #space:active {
   width: 82px;
   justify-content: center;
   font-size: 11px;
-  touch-action: manipulation;
+  touch-action: none;
   white-space: nowrap;
   text-shadow: 0 1px 4px #000;
 }

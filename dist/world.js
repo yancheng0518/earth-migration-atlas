@@ -347,15 +347,16 @@ export async function openWorld({
     }
     return null;
   }
-  function zoomTarget() {
-    if (Math.abs(navigation.depth) > 0.015) return null;
-    const exact = hit();
+  function zoomTarget(clientX, clientY, touch) {
+    const label = document.elementFromPoint(clientX, clientY)?.closest('.world-marker');
+    if (label) return label.dataset.facility;
+    const exact = hit(true);
     if (facilities.includes(exact)) return exact;
     const coords = readMarkers(),
       x = ((1 + pointer.x) * width) / 2,
       y = ((1 - pointer.y) * height) / 2;
     let target = null,
-      best = 35;
+      best = clamp(Math.min(width, height) * (touch ? 0.15 : 0.075), 42, 66);
     for (const [id, [mx, my]] of Object.entries(coords)) {
       const d = Math.hypot(mx - x, my - y);
       if (d < best) {
@@ -365,6 +366,11 @@ export async function openWorld({
     }
     return target;
   }
+  function zoomAt(amount, x, y, touch = false) {
+    locate(x, y);
+    const candidate = amount > 0 && navigation.canAimAtFacility() ? zoomTarget(x, y, touch) : null;
+    navigation.zoom(amount, candidate);
+  }
   const fingers = new Map();
   let pinch = 0;
   const measure = () => {
@@ -372,24 +378,34 @@ export async function openWorld({
     return Math.hypot(a.x - b.x, a.y - b.y);
   };
   // The label and the few pixels of geometry beside it are the same destination.
-  viewport.parentElement.addEventListener(
+  const input = viewport.parentElement;
+  input.addEventListener(
     'wheel',
     (e) => {
       const label = e.target.closest('.world-marker');
       if (!exploring || (e.target !== surface && !label)) return;
       e.preventDefault();
-      locate(e.clientX, e.clientY);
       const units = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? height : 1;
-      navigation.zoom(clamp((-e.deltaY * units) / 1250, -0.27, 0.27), label?.dataset.facility || zoomTarget());
+      zoomAt(clamp((-e.deltaY * units) / 1250, -0.27, 0.27), e.clientX, e.clientY);
       highlight(null);
     },
     { passive: false },
   );
-  surface.addEventListener('pointerdown', (e) => {
+  input.addEventListener('pointerdown', (e) => {
     if (!exploring || e.button !== 0) return;
+    const label = e.pointerType === 'touch' ? e.target.closest('.world-marker') : null;
+    if (e.target !== surface && !label) return;
+    // A finger landing on a label can still form a pinch with the canvas.
     locate(e.clientX, e.clientY);
     surface.setPointerCapture(e.pointerId);
-    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, dragged: false });
+    fingers.set(e.pointerId, {
+      x: e.clientX,
+      y: e.clientY,
+      startX: e.clientX,
+      startY: e.clientY,
+      dragged: false,
+      facility: label?.dataset.facility,
+    });
     if (fingers.size >= 2) {
       for (const finger of fingers.values()) finger.dragged = true;
       pinch = measure();
@@ -410,8 +426,7 @@ export async function openWorld({
     if (fingers.size === 2) {
       const span = measure(),
         [a, b] = fingers.values();
-      locate((a.x + b.x) / 2, (a.y + b.y) / 2);
-      if (pinch > 2 && span > 2) navigation.zoom(Math.log(span / pinch) * 0.85, zoomTarget());
+      if (pinch > 2 && span > 2) zoomAt(Math.log(span / pinch) * 0.85, (a.x + b.x) / 2, (a.y + b.y) / 2, true);
       pinch = span;
     } else if (fingers.size === 1) {
       if (Math.hypot(f.x - f.startX, f.y - f.startY) > 4) f.dragged = true;
@@ -423,7 +438,7 @@ export async function openWorld({
     const f = fingers.get(e.pointerId);
     if (f && !f.dragged && Math.hypot(e.clientX - f.startX, e.clientY - f.startY) < 6) {
       locate(e.clientX, e.clientY);
-      const id = hit(true);
+      const id = f.facility || hit(true);
       if (id) {
         highlight(id);
         onInspect(id);

@@ -4,6 +4,9 @@ const clamp = THREE.MathUtils.clamp;
 const smooth = THREE.MathUtils.smoothstep;
 const up = new THREE.Vector3(0, 1, 0);
 const radius = 2.2;
+const overviewRadius = 8.6;
+const closestOverview = 6.45;
+const overviewZoomRate = 5;
 
 /** Interpolate two directions along the short great-circle arc. Even a flight
  * to the antipode stays outside the crust. The fallback picks a meridian when
@@ -24,7 +27,8 @@ export function createNavigation(models) {
   const orbit = new THREE.Vector3(0, 0, 1);
   let azimuth = 0,
     latitude = 0,
-    overviewDistance = 8.6;
+    overviewDistance = overviewRadius,
+    overviewGoal = overviewRadius;
   let depth = 0,
     destination = 0,
     route = 'engine',
@@ -119,7 +123,7 @@ export function createNavigation(models) {
   }
   function reset() {
     azimuth = latitude = depth = destination = 0;
-    overviewDistance = 8.6;
+    overviewDistance = overviewGoal = overviewRadius;
     route = 'engine';
     queued = null;
     farAngles.yaw = farAngles.pitch = 0;
@@ -140,20 +144,44 @@ export function createNavigation(models) {
     queued = null;
     if (Object.hasOwn(scales, id)) {
       destination = scales[id];
+      overviewGoal = overviewRadius;
       return;
     }
     if (route === id || depth <= 0) {
       route = id;
+      overviewGoal = overviewDistance;
       destination = 1;
     } else {
       queued = id;
       destination = 0;
     }
   }
+  function canAimAtFacility() {
+    return depth >= -0.16 && depth <= 0.015 && destination <= 0;
+  }
   function zoom(amount, candidate) {
     queued = null;
-    if (depth <= 0.015 && destination <= 0.015 && destination + amount > 0 && angles[candidate]) route = candidate;
-    destination = clamp(destination + amount, -2, 1);
+    let next = destination + amount;
+    if (amount > 0 && destination <= 0 && next > 0) {
+      // Commit a route only while looking at the globe. Blank-space zoom
+      // changes the overview radius and leaves the camera free to orbit.
+      if (depth > 0.015) return;
+      if (canAimAtFacility() && Object.hasOwn(angles, candidate)) {
+        route = candidate;
+        overviewGoal = overviewDistance;
+      } else {
+        overviewGoal = Math.max(closestOverview, overviewGoal - next * overviewZoomRate);
+        destination = 0;
+        return;
+      }
+    } else if (amount < 0 && next < 0) {
+      // Undo an overview zoom before continuing out to the solar system.
+      const restore = Math.min(-next, (overviewRadius - overviewGoal) / overviewZoomRate);
+      overviewGoal = Math.min(overviewRadius, overviewGoal + restore * overviewZoomRate);
+      next += restore;
+    }
+    // A sequence of wheel deltas can leave a tiny residual at Earth.
+    destination = Math.abs(next) < 1e-9 ? 0 : clamp(next, -2, 1);
   }
   function drag(x, y, extent) {
     const gain = (Math.PI * 1.45) / Math.max(280, extent);
@@ -171,13 +199,16 @@ export function createNavigation(models) {
   }
   function step(dt, reduced) {
     // Limit automatic travel speed yet retain fine wheel/trackpad stopping.
+    const step = 1 - Math.exp(-dt * 9);
+    overviewDistance += (overviewGoal - overviewDistance) * step;
     const delta = destination - depth,
       cap = (reduced ? 3.0 : 0.54) * dt;
-    depth += clamp(delta * (1 - Math.exp(-dt * 9)), -cap, cap);
+    depth += clamp(delta * step, -cap, cap);
     if (Math.abs(depth - destination) < 0.001) depth = destination;
     if (queued && depth === 0) {
       route = queued;
       queued = null;
+      overviewGoal = overviewDistance;
       destination = 1;
     }
     return sample(route, Math.max(0, depth));
@@ -189,6 +220,7 @@ export function createNavigation(models) {
     go,
     drag,
     zoom,
+    canAimAtFacility,
     step,
     farAngles,
     get depth() {
