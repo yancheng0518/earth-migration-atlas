@@ -8,7 +8,7 @@ const small = matchMedia('(max-width: 760px), (max-height: 530px)');
 const jumpButtons = [...document.querySelectorAll('[data-chapter]')];
 const destinations = [...document.querySelectorAll('[data-go]')];
 const terms = Object.keys(dossiers);
-const soundtrack = createSoundtrack(restartWithSound);
+const soundtrack = createSoundtrack(startWithSound);
 const startTimes = chapters.map((_, i) => chapters.slice(0, i).reduce((n, c) => n + c.length, 0));
 const total = startTimes.at(-1) + chapters.at(-1).length;
 const clock = { seconds: 0 },
@@ -31,6 +31,7 @@ let selected = 'earth',
 let filmPrint = null,
   printStarting = false;
 let startingWithSound = false;
+const awaitingStart = () => Boolean(document.body.dataset.filmGate);
 const live = { thrust: 0, speed: 29.78, au: 1, spin: 15.04, alt: 0, delay: 499 };
 const fields = Object.keys(live);
 const fmt = (seconds) =>
@@ -208,7 +209,7 @@ function playButton() {
   put('film-label', pause ? '暂停' : '继续');
   $('film-toggle').setAttribute('aria-label', pause ? '暂停电影' : '继续电影');
   $('film-icon').setAttribute('href', pause ? '#i-pause' : '#i-play');
-  if (mode === 'film' && !done && timeline.paused()) showControls();
+  if (mode === 'film' && !awaitingStart() && !done && timeline.paused()) showControls();
 }
 let idleTimer = 0;
 const player = $('film-player');
@@ -242,7 +243,7 @@ function scheduleHide() {
   }, 3200);
 }
 function showControls() {
-  if (!ready || mode !== 'film' || done) return;
+  if (!ready || mode !== 'film' || done || awaitingStart()) return;
   player.inert = false;
   document.body.dataset.filmIdle = 'false';
   revealButton.setAttribute('aria-expanded', 'true');
@@ -312,34 +313,55 @@ function enterFilm(replay = false) {
   paintFilm(true);
   playButton();
 }
-async function restartWithSound() {
+function leaveStartGate() {
+  delete document.body.dataset.filmGate;
+  $('start-silent').hidden = true;
+  put('film-start-status', '');
+  if (document.activeElement?.closest('.film-quick')) $('space').focus({ preventScroll: true });
+}
+async function startWithSound() {
   if (!ready || startingWithSound) return;
   startingWithSound = true;
   const button = $('score-unlock');
-  button.disabled = true;
+  document.body.dataset.filmGate = 'loading';
+  hideControls();
+  button.setAttribute('aria-disabled', 'true');
+  $('start-silent').hidden = true;
+  button.querySelector('span').textContent = '正在连接网易云…';
+  put('film-start-status', '正在连接网易云，电影暂停在当前画面。');
   timeline.pause();
   if (mode !== 'film') setMode('film');
   done = false;
   $('ending').hidden = true;
-  timeline.time(0);
   paintFilm(true);
+  // Invoke the media element inside the trusted click, then wait for actual
+  // playback before letting the film clock advance.
   const audioReady = soundtrack.startOnline(true);
   let timeout;
-  await Promise.race([audioReady, new Promise(resolve => {
+  const started = await Promise.race([audioReady, new Promise(resolve => {
     timeout = setTimeout(() => {
       soundtrack.cancelStart();
-      resolve();
+      resolve(false);
     }, 8000);
   })]);
   clearTimeout(timeout);
   startingWithSound = false;
-  button.disabled = false;
+  button.removeAttribute('aria-disabled');
+  button.querySelector('span').textContent = '开始电影';
   soundtrack.resumeStart();
-  if (mode !== 'film' || document.hidden) return;
-  if (timeline.paused() && clock.seconds === 0) enterFilm();
+  if (!started || document.hidden) {
+    document.body.dataset.filmGate = 'recovery';
+    button.querySelector('span').textContent = '重试有声播放';
+    $('start-silent').hidden = false;
+    put('film-start-status', '网易云暂未连上。可以重试或选择静音观看。');
+    syncSound(true);
+    return;
+  }
+  leaveStartGate();
+  enterFilm();
 }
 function seek(s) {
-  if (!ready) return;
+  if (!ready || awaitingStart()) return;
   if (done) {
     done = false;
     $('ending').hidden = true;
@@ -351,6 +373,7 @@ function seek(s) {
 }
 function toggleFilm() {
   if (mode !== 'film' || !ready) return;
+  if (awaitingStart()) return startWithSound();
   soundtrack.allowRetry();
   if (done) return enterFilm(true);
   timeline.paused(!timeline.paused());
@@ -358,7 +381,7 @@ function toggleFilm() {
   showControls();
 }
 function choose(id) {
-  if (!ready || !dossiers[id]) return;
+  if (!ready || startingWithSound || !dossiers[id]) return;
   if (mode !== 'explore') {
     timeline.pause();
     setMode('explore');
@@ -539,10 +562,19 @@ for (const button of destinations) {
   });
 }
 $('film-toggle').onclick = toggleFilm;
+$('start-silent').onclick = () => {
+  soundtrack.mute();
+  leaveStartGate();
+  enterFilm();
+};
 $('film-progress').addEventListener('input', (e) => seek((Number(e.target.value) * total) / 1000));
 jumpButtons.forEach((b, i) => (b.onclick = () => seek(startTimes[i])));
 $('mode-film').onclick = () => {
-  if (mode !== 'film' || done) enterFilm();
+  if (mode === 'film' && !done) return;
+  if (awaitingStart()) {
+    setMode('film');
+    paintFilm(true);
+  } else enterFilm();
 };
 $('mode-explore').onclick = () => {
   if (mode !== 'explore') choose('earth');
@@ -631,6 +663,8 @@ try {
 }
 progress(100, '观测系统就绪');
 ready = true;
+setMode('film');
+paintFilm(true);
+playButton();
+$('score-unlock').disabled = false;
 $('loading').hidden = true;
-enterFilm(true);
-if (soundtrack.wantsOnline()) soundtrack.startOnline();

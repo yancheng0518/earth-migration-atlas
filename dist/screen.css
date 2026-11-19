@@ -1819,10 +1819,32 @@ body[data-mode='film'] #chapter-zh {transition: opacity .42s ease}
 
 #sound {width: auto; display: inline-flex; align-items: center; gap: 5px; padding-inline: 6px; white-space: nowrap;}
 #sound-label {font: 11px/1.2 var(--sans);}
-.film-quick .score-unlock {
-  border-left: 1px solid #a7a3ad37;
-  border-radius: 0;
-  color: #c0c0c7;
+.film-quick #score-unlock,
+body[data-film-gate] .film-quick #reveal-player {
+  display: none;
+}
+body[data-film-gate] .film-quick #score-unlock {
+  display: inline-flex;
+  min-height: 44px;
+  padding-inline: 16px;
+  color: #e7e7e9;
+  border: 1px solid #aaa8b25c;
+  background: #121217;
+}
+body[data-film-gate] .film-quick #score-unlock:hover {
+  background: #222229;
+}
+body[data-film-gate='recovery'] .film-quick {
+  column-gap: 10px;
+}
+body[data-film-gate='recovery'] .film-quick #start-silent:not([hidden]) {
+  min-height: 44px;
+}
+@media (max-height: 540px) and (orientation: landscape) {
+  body[data-mode='film'][data-film-gate] #console {
+    --film-rail: 106px;
+    --film-offset: 0px;
+  }
 }
 @media (max-width: 580px) {
   .utilities #sound-label {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);}

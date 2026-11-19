@@ -3,14 +3,6 @@ import { departureCue } from './states.js';
 const trackUrl = 'https://music.163.com/song/media/outer/url?id=1343461538.mp3';
 // Cue in the full NetEase release: the bass and drums return at 04:59.8.
 const onlineCue = 299.8;
-const preference = 'atlas-netease-sound';
-
-function rememberOnline(enabled) {
-  try { localStorage.setItem(preference, enabled ? 'on' : 'off'); } catch {}
-}
-function wantsOnline() {
-  try { return localStorage.getItem(preference) === 'on'; } catch { return false; }
-}
 
 export function createSoundtrack(restartWithSound) {
   const byId = id => document.getElementById(id);
@@ -46,7 +38,6 @@ export function createSoundtrack(restartWithSound) {
 
   function showOfficial() {
     release();
-    rememberOnline(false);
     if (service.firstElementChild) return;
     const frame = document.createElement('iframe');
     frame.title = '网易云音乐官方播放器 · 开启新征程 · 阿鲲';
@@ -61,7 +52,7 @@ export function createSoundtrack(restartWithSound) {
     if (panel.hidden) return false;
     panel.hidden = true;
     toggle.setAttribute('aria-expanded', 'false');
-    const target = toggle.offsetParent && !toggle.closest('[inert]') ? toggle : start;
+    const target = toggle.offsetParent && !toggle.closest('[inert]') ? toggle : byId('reveal-player');
     target.focus({preventScroll:true});
     return true;
   }
@@ -76,9 +67,6 @@ export function createSoundtrack(restartWithSound) {
   function streamUnavailable() {
     needsGesture = true;
     setStatus('在线音源暂不可用，可用网易云播放器收听。', true);
-    if (!preparing) return;
-    panel.hidden = false;
-    toggle.setAttribute('aria-expanded', 'true');
   }
 
   function tryPlay() {
@@ -88,7 +76,7 @@ export function createSoundtrack(restartWithSound) {
       if (source === 'online') {
         if (err.name === 'NotAllowedError') {
           needsGesture = true;
-          setStatus('点「有声播放」开始同步。');
+          setStatus('请点「开始电影」重试连接。');
         } else streamUnavailable();
       } else {
         needsGesture = true;
@@ -115,7 +103,6 @@ export function createSoundtrack(restartWithSound) {
     enabled = true;
     needsGesture = false;
     preparing = waitForAudio;
-    rememberOnline(true);
     music.loop = mode === 'explore';
     if (mode === 'film') music.currentTime = time + cue - departureCue;
     setStatus('正在连接网易云音源…');
@@ -167,7 +154,6 @@ export function createSoundtrack(restartWithSound) {
   byId('music-close').onclick = close;
   manualPlayer.onclick = showOfficial;
   byId('music-stop').onclick = () => {
-    rememberOnline(false);
     service.replaceChildren();
     release();
     setStatus('音乐已关闭。');
@@ -178,7 +164,6 @@ export function createSoundtrack(restartWithSound) {
     if (!file) return;
     music.pause();
     if (fileUrl) URL.revokeObjectURL(fileUrl);
-    rememberOnline(false);
     source = 'local';
     enabled = preparing = false;
     attempt = null;
@@ -219,5 +204,5 @@ export function createSoundtrack(restartWithSound) {
   window.addEventListener('pagehide', e => {
     if (!e.persisted && fileUrl) URL.revokeObjectURL(fileUrl);
   });
-  return {sync, close, startOnline, cancelStart, allowRetry, wantsOnline, resumeStart() { preparing = false; }};
+  return { sync, close, startOnline, cancelStart, allowRetry, mute: release, resumeStart() { preparing = false; } };
 }

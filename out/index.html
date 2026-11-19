@@ -1856,10 +1856,32 @@ body[data-mode='film'] #chapter-zh {transition: opacity .42s ease}
 
 #sound {width: auto; display: inline-flex; align-items: center; gap: 5px; padding-inline: 6px; white-space: nowrap;}
 #sound-label {font: 11px/1.2 var(--sans);}
-.film-quick .score-unlock {
-  border-left: 1px solid #a7a3ad37;
-  border-radius: 0;
-  color: #c0c0c7;
+.film-quick #score-unlock,
+body[data-film-gate] .film-quick #reveal-player {
+  display: none;
+}
+body[data-film-gate] .film-quick #score-unlock {
+  display: inline-flex;
+  min-height: 44px;
+  padding-inline: 16px;
+  color: #e7e7e9;
+  border: 1px solid #aaa8b25c;
+  background: #121217;
+}
+body[data-film-gate] .film-quick #score-unlock:hover {
+  background: #222229;
+}
+body[data-film-gate='recovery'] .film-quick {
+  column-gap: 10px;
+}
+body[data-film-gate='recovery'] .film-quick #start-silent:not([hidden]) {
+  min-height: 44px;
+}
+@media (max-height: 540px) and (orientation: landscape) {
+  body[data-mode='film'][data-film-gate] #console {
+    --film-rail: 106px;
+    --film-offset: 0px;
+  }
 }
 @media (max-width: 580px) {
   .utilities #sound-label {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);}
@@ -1898,7 +1920,7 @@ body[data-mode='film'] #chapter-zh {transition: opacity .42s ease}
 </style>
   
 </head>
-<body data-mode="film" data-film-idle="true" data-view="earth">
+<body data-mode="film" data-film-idle="true" data-film-gate="start" data-view="earth">
   <svg xmlns="http://www.w3.org/2000/svg" class="symbol-library" aria-hidden="true"><defs>
     <symbol id="i-mark" viewBox="0 0 48 48"><circle cx="24" cy="24" r="13"/><path d="M12 25c8 3 19-2 24-9M11 20c5 2 16 0 21-6M17 34c6 0 13-3 17-8M3 32c2 5 12 4 22-1s18-13 18-18c-1-3-7-2-11-1M4 39l8-3"/><circle cx="40" cy="12" r="2" fill="currentColor" stroke="none"/></symbol>
     <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4zM16 8q4 4 0 8m3-11q7 7 0 14"/></symbol>
@@ -1927,7 +1949,9 @@ body[data-mode='film'] #chapter-zh {transition: opacity .42s ease}
         <button id="reveal-player" class="reveal-player" aria-controls="film-player" aria-expanded="false" aria-label="显示电影播放控制">
           <svg aria-hidden="true"><use href="#i-play"/></svg><span>播放控制</span>
         </button>
-        <button id="score-unlock" class="score-unlock"><svg aria-hidden="true"><use href="#i-sound"/></svg><span>有声播放</span></button>
+        <button id="score-unlock" class="score-unlock" disabled><svg aria-hidden="true"><use href="#i-play"/></svg><span>开始电影</span></button>
+        <button id="start-silent" type="button" hidden>静音观看</button>
+        <p id="film-start-status" class="sr-only" role="status"></p>
       </div>
       <div id="space" tabindex="-1" aria-label="三维观测视窗。探索模式下拖动环视，向上滚动推近，向下滚动拉远。触屏可点选目标，双指张开推近、合拢拉远。"></div>
       <div class="screen-shade" aria-hidden="true"></div>
@@ -2357,14 +2381,6 @@ import { departureCue } from "atlas/states.js";
 const trackUrl = 'https://music.163.com/song/media/outer/url?id=1343461538.mp3';
 // Cue in the full NetEase release: the bass and drums return at 04:59.8.
 const onlineCue = 299.8;
-const preference = 'atlas-netease-sound';
-
-function rememberOnline(enabled) {
-  try { localStorage.setItem(preference, enabled ? 'on' : 'off'); } catch {}
-}
-function wantsOnline() {
-  try { return localStorage.getItem(preference) === 'on'; } catch { return false; }
-}
 
 export function createSoundtrack(restartWithSound) {
   const byId = id => document.getElementById(id);
@@ -2400,7 +2416,6 @@ export function createSoundtrack(restartWithSound) {
 
   function showOfficial() {
     release();
-    rememberOnline(false);
     if (service.firstElementChild) return;
     const frame = document.createElement('iframe');
     frame.title = '网易云音乐官方播放器 · 开启新征程 · 阿鲲';
@@ -2415,7 +2430,7 @@ export function createSoundtrack(restartWithSound) {
     if (panel.hidden) return false;
     panel.hidden = true;
     toggle.setAttribute('aria-expanded', 'false');
-    const target = toggle.offsetParent && !toggle.closest('[inert]') ? toggle : start;
+    const target = toggle.offsetParent && !toggle.closest('[inert]') ? toggle : byId('reveal-player');
     target.focus({preventScroll:true});
     return true;
   }
@@ -2430,9 +2445,6 @@ export function createSoundtrack(restartWithSound) {
   function streamUnavailable() {
     needsGesture = true;
     setStatus('在线音源暂不可用，可用网易云播放器收听。', true);
-    if (!preparing) return;
-    panel.hidden = false;
-    toggle.setAttribute('aria-expanded', 'true');
   }
 
   function tryPlay() {
@@ -2442,7 +2454,7 @@ export function createSoundtrack(restartWithSound) {
       if (source === 'online') {
         if (err.name === 'NotAllowedError') {
           needsGesture = true;
-          setStatus('点「有声播放」开始同步。');
+          setStatus('请点「开始电影」重试连接。');
         } else streamUnavailable();
       } else {
         needsGesture = true;
@@ -2469,7 +2481,6 @@ export function createSoundtrack(restartWithSound) {
     enabled = true;
     needsGesture = false;
     preparing = waitForAudio;
-    rememberOnline(true);
     music.loop = mode === 'explore';
     if (mode === 'film') music.currentTime = time + cue - departureCue;
     setStatus('正在连接网易云音源…');
@@ -2521,7 +2532,6 @@ export function createSoundtrack(restartWithSound) {
   byId('music-close').onclick = close;
   manualPlayer.onclick = showOfficial;
   byId('music-stop').onclick = () => {
-    rememberOnline(false);
     service.replaceChildren();
     release();
     setStatus('音乐已关闭。');
@@ -2532,7 +2542,6 @@ export function createSoundtrack(restartWithSound) {
     if (!file) return;
     music.pause();
     if (fileUrl) URL.revokeObjectURL(fileUrl);
-    rememberOnline(false);
     source = 'local';
     enabled = preparing = false;
     attempt = null;
@@ -2573,7 +2582,7 @@ export function createSoundtrack(restartWithSound) {
   window.addEventListener('pagehide', e => {
     if (!e.persisted && fileUrl) URL.revokeObjectURL(fileUrl);
   });
-  return {sync, close, startOnline, cancelStart, allowRetry, wantsOnline, resumeStart() { preparing = false; }};
+  return { sync, close, startOnline, cancelStart, allowRetry, mute: release, resumeStart() { preparing = false; } };
 }
 
 </script>
@@ -3594,7 +3603,7 @@ const small = matchMedia('(max-width: 760px), (max-height: 530px)');
 const jumpButtons = [...document.querySelectorAll('[data-chapter]')];
 const destinations = [...document.querySelectorAll('[data-go]')];
 const terms = Object.keys(dossiers);
-const soundtrack = createSoundtrack(restartWithSound);
+const soundtrack = createSoundtrack(startWithSound);
 const startTimes = chapters.map((_, i) => chapters.slice(0, i).reduce((n, c) => n + c.length, 0));
 const total = startTimes.at(-1) + chapters.at(-1).length;
 const clock = { seconds: 0 },
@@ -3617,6 +3626,7 @@ let selected = 'earth',
 let filmPrint = null,
   printStarting = false;
 let startingWithSound = false;
+const awaitingStart = () => Boolean(document.body.dataset.filmGate);
 const live = { thrust: 0, speed: 29.78, au: 1, spin: 15.04, alt: 0, delay: 499 };
 const fields = Object.keys(live);
 const fmt = (seconds) =>
@@ -3794,7 +3804,7 @@ function playButton() {
   put('film-label', pause ? '暂停' : '继续');
   $('film-toggle').setAttribute('aria-label', pause ? '暂停电影' : '继续电影');
   $('film-icon').setAttribute('href', pause ? '#i-pause' : '#i-play');
-  if (mode === 'film' && !done && timeline.paused()) showControls();
+  if (mode === 'film' && !awaitingStart() && !done && timeline.paused()) showControls();
 }
 let idleTimer = 0;
 const player = $('film-player');
@@ -3828,7 +3838,7 @@ function scheduleHide() {
   }, 3200);
 }
 function showControls() {
-  if (!ready || mode !== 'film' || done) return;
+  if (!ready || mode !== 'film' || done || awaitingStart()) return;
   player.inert = false;
   document.body.dataset.filmIdle = 'false';
   revealButton.setAttribute('aria-expanded', 'true');
@@ -3898,34 +3908,55 @@ function enterFilm(replay = false) {
   paintFilm(true);
   playButton();
 }
-async function restartWithSound() {
+function leaveStartGate() {
+  delete document.body.dataset.filmGate;
+  $('start-silent').hidden = true;
+  put('film-start-status', '');
+  if (document.activeElement?.closest('.film-quick')) $('space').focus({ preventScroll: true });
+}
+async function startWithSound() {
   if (!ready || startingWithSound) return;
   startingWithSound = true;
   const button = $('score-unlock');
-  button.disabled = true;
+  document.body.dataset.filmGate = 'loading';
+  hideControls();
+  button.setAttribute('aria-disabled', 'true');
+  $('start-silent').hidden = true;
+  button.querySelector('span').textContent = '正在连接网易云…';
+  put('film-start-status', '正在连接网易云，电影暂停在当前画面。');
   timeline.pause();
   if (mode !== 'film') setMode('film');
   done = false;
   $('ending').hidden = true;
-  timeline.time(0);
   paintFilm(true);
+  // Invoke the media element inside the trusted click, then wait for actual
+  // playback before letting the film clock advance.
   const audioReady = soundtrack.startOnline(true);
   let timeout;
-  await Promise.race([audioReady, new Promise(resolve => {
+  const started = await Promise.race([audioReady, new Promise(resolve => {
     timeout = setTimeout(() => {
       soundtrack.cancelStart();
-      resolve();
+      resolve(false);
     }, 8000);
   })]);
   clearTimeout(timeout);
   startingWithSound = false;
-  button.disabled = false;
+  button.removeAttribute('aria-disabled');
+  button.querySelector('span').textContent = '开始电影';
   soundtrack.resumeStart();
-  if (mode !== 'film' || document.hidden) return;
-  if (timeline.paused() && clock.seconds === 0) enterFilm();
+  if (!started || document.hidden) {
+    document.body.dataset.filmGate = 'recovery';
+    button.querySelector('span').textContent = '重试有声播放';
+    $('start-silent').hidden = false;
+    put('film-start-status', '网易云暂未连上。可以重试或选择静音观看。');
+    syncSound(true);
+    return;
+  }
+  leaveStartGate();
+  enterFilm();
 }
 function seek(s) {
-  if (!ready) return;
+  if (!ready || awaitingStart()) return;
   if (done) {
     done = false;
     $('ending').hidden = true;
@@ -3937,6 +3968,7 @@ function seek(s) {
 }
 function toggleFilm() {
   if (mode !== 'film' || !ready) return;
+  if (awaitingStart()) return startWithSound();
   soundtrack.allowRetry();
   if (done) return enterFilm(true);
   timeline.paused(!timeline.paused());
@@ -3944,7 +3976,7 @@ function toggleFilm() {
   showControls();
 }
 function choose(id) {
-  if (!ready || !dossiers[id]) return;
+  if (!ready || startingWithSound || !dossiers[id]) return;
   if (mode !== 'explore') {
     timeline.pause();
     setMode('explore');
@@ -4125,10 +4157,19 @@ for (const button of destinations) {
   });
 }
 $('film-toggle').onclick = toggleFilm;
+$('start-silent').onclick = () => {
+  soundtrack.mute();
+  leaveStartGate();
+  enterFilm();
+};
 $('film-progress').addEventListener('input', (e) => seek((Number(e.target.value) * total) / 1000));
 jumpButtons.forEach((b, i) => (b.onclick = () => seek(startTimes[i])));
 $('mode-film').onclick = () => {
-  if (mode !== 'film' || done) enterFilm();
+  if (mode === 'film' && !done) return;
+  if (awaitingStart()) {
+    setMode('film');
+    paintFilm(true);
+  } else enterFilm();
 };
 $('mode-explore').onclick = () => {
   if (mode !== 'explore') choose('earth');
@@ -4217,9 +4258,11 @@ try {
 }
 progress(100, '观测系统就绪');
 ready = true;
+setMode('film');
+paintFilm(true);
+playButton();
+$('score-unlock').disabled = false;
 $('loading').hidden = true;
-enterFilm(true);
-if (soundtrack.wantsOnline()) soundtrack.startOnline();
 
 </script>
 <script type="text/plain" data-atlas-module="navigation.js">
