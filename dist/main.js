@@ -562,7 +562,9 @@ function updateMarkers(coords) {
       mode !== 'explore' || !p ||
       p[1] + frame.top < headerBounds.bottom || p[1] + frame.top > deckBounds.bottom;
     if (b.hidden) continue;
-    const x = clamp(p[0] + 10, 12, frame.width - w - 8);
+    const maxX = frame.width - w - 8;
+    const beside = p[0] + 10 <= maxX ? p[0] + 10 : p[0] - w - 10;
+    const x = Math.round(clamp(beside, 12, maxX));
     const minY = Math.max(8, headerBounds.bottom - frame.top + 5);
     const maxY = Math.max(minY, deckBounds.top - frame.top - h - 5);
     const y = clamp(p[1] - h / 2, minY, maxY);
@@ -573,11 +575,13 @@ function updateMarkers(coords) {
     if (b.hidden) continue;
     shown.push({x,y:spot});
     const dx = p[0] - x, dy = p[1] - (spot + h/2);
+    const edge = dx >= w ? w : 0;
     b.style.setProperty('--pin-x', dx + 'px');
     b.style.setProperty('--pin-y', dy + 'px');
-    b.style.setProperty('--pin-length', Math.hypot(dx, dy) + 'px');
-    b.style.setProperty('--pin-angle', Math.atan2(dy, dx) + 'rad');
-    b.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(spot) + 'px)';
+    b.style.setProperty('--leader-x', edge + 'px');
+    b.style.setProperty('--pin-length', Math.hypot(dx - edge, dy) + 'px');
+    b.style.setProperty('--pin-angle', Math.atan2(dy, dx - edge) + 'rad');
+    b.style.transform = 'translate(' + x + 'px,' + Math.round(spot) + 'px)';
   }
 }
 // A tap immediately after orbit dragging may lose its synthetic click on Android.

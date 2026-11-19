@@ -175,7 +175,7 @@ body[data-mode='explore'] #space:active {
 .world-marker::before {
   content: '';
   position: absolute;
-  left: 0;
+  left: var(--leader-x, 0px);
   top: 50%;
   width: var(--pin-length, 0px);
   height: 1px;
