@@ -237,7 +237,7 @@ export async function openWorld({
     for (const id of facilities) models[id].group.visible = scale < 0.31;
     traffic.group.visible = scale < 0.31;
     cosmic.update(scale, time, camera, height);
-    sky.setDistance?.(scale);
+    sky.setDistance(scale, camera.position);
   }
   const scaleName = (scale) => scale >= 1.46 ? 'galaxy' : scale >= 0.48 ? 'solar' : 'earth';
   function storyPose() {
