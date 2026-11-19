@@ -211,10 +211,13 @@ function solarSurface() {
   ctx.fillRect(0, 0, 256, 512);
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 8; x++) {
-      const c = Math.floor(8 + 11 * (0.5 + 0.5 * Math.sin(x * 5.74 + y * 8.24)));
+      const c = Math.floor(7 + 16 * (0.5 + 0.5 * Math.sin(x * 5.74 + y * 8.24)));
       const left = x * 32 + 1,
         top = y * 32 + 1;
-      ctx.fillStyle = 'rgb(' + (10 + c) + ',' + (25 + c) + ',' + (64 + 2 * c) + ')';
+      const cell = ctx.createLinearGradient(left, top, left + 31, top + 31);
+      cell.addColorStop(0, 'rgb(' + (9 + c) + ',' + (19 + c) + ',' + (35 + c) + ')');
+      cell.addColorStop(1, 'rgb(' + (9 + c) + ',' + (11 + c) + ',' + (20 + c) + ')');
+      ctx.fillStyle = cell;
       ctx.beginPath();
       ctx.moveTo(left + 3, top);
       ctx.lineTo(left + 27, top);
@@ -227,8 +230,9 @@ function solarSurface() {
       ctx.fill();
       ctx.fillStyle = 'rgba(167,180,192,0.25)';
       for (let k = 2; k < 30; k += 3) ctx.fillRect(left + 1, top + k, 28, 0.6);
-      ctx.fillStyle = '#8b8373';
-      ctx.fillRect(left + 14.7, top, 0.9, 29);
+      ctx.fillStyle = '#8b9299';
+      ctx.fillRect(left + 8.3, top, 0.65, 29);
+      ctx.fillRect(left + 20.5, top, 0.65, 29);
     }
   }
   const tex = new THREE.CanvasTexture(canvas);
@@ -236,12 +240,76 @@ function solarSurface() {
   tex.anisotropy = 4;
   return new THREE.MeshStandardMaterial({
     map: tex,
-    roughness: 0.46,
-    metalness: 0.22,
-    emissive: 0x35446c,
-    emissiveMap: tex,
-    emissiveIntensity: 0.5,
+    roughness: 0.34,
+    metalness: 0.50,
     side: THREE.DoubleSide,
+  });
+}
+
+// A metal finish shares one set of panel joints across color, roughness, and
+// relief. Faint directional scuffing follows the panels, not the world axes.
+function hullFinish() {
+  const width = 512, height = 256;
+  const color = document.createElement('canvas');
+  const profile = document.createElement('canvas');
+  for (const canvas of [color, profile]) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const paint = color.getContext('2d'), relief = profile.getContext('2d');
+  const base = paint.createImageData(width, height), heightMap = relief.createImageData(width, height);
+  let seed = 1408841;
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 2 ** 32;
+  };
+  for (let y = 0; y < height; y++) {
+    const streak = (random() - 0.5) * 13;
+    for (let x = 0; x < width; x++) {
+      const i = 4 * (y * width + x);
+      const grit = (random() - 0.5) * 13 + streak;
+      const laminate = 8 * Math.sin(x * .027 + y * .012) + 5 * Math.sin(x * .006 - y * .066);
+      base.data.set([204 + grit + laminate, 209 + grit + laminate, 210 + grit + laminate, 255], i);
+      const h = 162 + grit * 1.4 + laminate * .55;
+      heightMap.data.set([h, h, h, 255], i);
+    }
+  }
+  paint.putImageData(base, 0, 0);
+  relief.putImageData(heightMap, 0, 0);
+  for (const [x, y, w, h] of [[10,12,234,133],[251,12,249,133],[10,151,111,94],[127,151,205,94],[339,151,161,94]]) {
+    paint.strokeStyle = '#777e83';
+    paint.lineWidth = 1.4;
+    paint.strokeRect(x, y, w, h);
+    paint.strokeStyle = '#dae0e3';
+    paint.lineWidth = 1;
+    paint.strokeRect(x + 2, y + 2, w - 4, h - 4);
+    relief.strokeStyle = '#323232';
+    relief.lineWidth = 2;
+    relief.strokeRect(x, y, w, h);
+    for (const bx of [x + 6, x + w - 7]) for (const by of [y + 7, y + h - 7]) {
+      paint.fillStyle = '#545d64';
+      paint.fillRect(bx, by, 3, 3);
+      paint.fillStyle = '#c0c6c9';
+      paint.fillRect(bx, by, 2, 1);
+      relief.fillStyle = '#686868';
+      relief.fillRect(bx, by, 3, 3);
+    }
+  }
+  const map = new THREE.CanvasTexture(color), surface = new THREE.CanvasTexture(profile);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = surface.anisotropy = 4;
+  return { map, surface };
+}
+
+function pressureGlass(color, emission, intensity) {
+  return new THREE.MeshPhysicalMaterial({
+    color,
+    emissive: emission,
+    emissiveIntensity: intensity,
+    metalness: .18,
+    roughness: .19,
+    clearcoat: .82,
+    clearcoatRoughness: .18,
   });
 }
 
@@ -414,18 +482,27 @@ export function createStation({ shared = false } = {}) {
   const cylinder = new THREE.CylinderGeometry(1, 1, 1, 32);
   const capsule = new THREE.SphereGeometry(1, 20, 14);
   const cone = new THREE.ConeGeometry(1, 1, 16);
-  const white = metal(0xc5cbc8),
-    faded = metal(0x838e98);
-  const light = metal(0xd5d0b5),
-    gold = metal(0xa48246, 0.58, 0.34);
-  const iron = metal(0x464f59),
-    dark = metal(0x232e38);
-  const coating = paintwork();
-  for (const material of [white, faded, light, gold, iron]) material.map = coating;
-  const goldLight = glow(0xffc678, 1.95),
-    warm = glow(0xffedc7, 1.55);
-  const cyan = glow(0x6edfff, 2.25),
-    red = glow(0xfa493c, 1.38);
+  const white = metal(0xaeb9bc, .75, .28),
+    faded = metal(0x7f919b, .69, .48);
+  const light = metal(0xc0c6c0, .62, .43),
+    gold = metal(0x8f7855, .58, .53);
+  const iron = metal(0x46535e, .56, .62),
+    dark = metal(0x151e29, .78, .24),
+    gasket = metal(0x121718, .95, .03),
+    oxidized = metal(0x894c3b, .72, .43);
+  const { map, surface } = hullFinish();
+  for (const material of [white, faded, light, gold, iron]) {
+    material.map = map;
+    material.bumpMap = surface;
+    material.roughnessMap = surface;
+    material.bumpScale = .006;
+  }
+  const goldLight = pressureGlass(0x9b7c56, 0xffba79, .47),
+    warm = pressureGlass(0xc0c4b5, 0xffe6b8, .63),
+    litRoom = pressureGlass(0xa6aba1, 0xffddb1, 1.04),
+    darkRoom = pressureGlass(0x172732, 0x17303a, .24);
+  const cyan = glow(0x78b9d3, 1.03),
+    red = glow(0xe7563a, 1.1);
   const array = solarSurface();
   const scale = vec(1, 1, 1),
     origin = vec(0, 0, 0);
@@ -458,33 +535,58 @@ export function createStation({ shared = false } = {}) {
     span = TAU / count;
   const core = hullSection(radius, 0.48, 0.42, span * 0.966);
   const cap = hullSection(radius, 0.42, 0.066, span * 0.84);
-  const outerBelt = hullSection(radius + 0.239, 0.028, 0.13, span * 0.985);
+  const accessHatch = hullSection(radius - 0.105, 0.192, 0.023, span * 0.38);
+  const outerBelt = hullSection(radius + 0.247, 0.040, 0.16, span * 0.963);
   const edge = hullSection(radius - 0.246, 0.035, 0.074, span * 0.85);
   for (let i = 0; i < count; i++) {
     const a = i * span,
       rot = [0, 0, a];
     hull.put(core, i % 7 === 1 ? light : i % 4 === 0 ? faded : white, origin, scale, rot);
-    hull.put(cap, i % 8 === 0 ? gold : faded, vec(0, 0, 0.219), scale, rot);
+    hull.put(cap, i % 7 === 0 ? iron : faded, vec(0, 0, 0.219), scale, rot);
     hull.put(outerBelt, dark, vec(0, 0, 0.014), scale, rot);
-    hull.put(edge, gold, origin, scale, rot);
+    hull.put(edge, faded, origin, scale, rot);
+    hull.put(accessHatch, i % 6 === 2 ? oxidized : light, vec(0, 0, 0.261), scale, rot);
     const joint = a + span * 0.5;
     for (const z of [-0.16, 0.18]) {
-      brace(hull, circle(joint, radius - 0.23, z), circle(joint, radius + 0.24, z), 0.02, gold);
+      brace(hull, circle(joint, radius - 0.23, z), circle(joint, radius + 0.24, z), 0.02, iron);
+      if (i % 4 === 0) block(hull, light, circle(joint, radius + .25, z), vec(.034,.038,.037), joint);
     }
-    // Recessed glazing on the curved outer wall; a second strip faces forward.
-    for (let j = 0; j < 8; j++) {
-      const b = a + ((j - 3.5) * span) / 9.6;
-      const window = (i * 11 + j * 7) % 17 < 3 ? iron : j % 3 === 0 ? goldLight : warm;
-      block(hull, window, circle(b, radius + 0.256, 0.018), vec(0.018, 0.033, 0.052), b);
-      block(hull, j % 5 === 1 ? dark : window, circle(b, radius + 0.18, 0.218), vec(0.033, 0.03, 0.009), b);
+    // The outer facade is a series of shallow fitted sills. Lit panes, dark
+    // panes, and closed micrometeoroid shutters keep the decks from reading
+    // like a single row of overexposed LEDs.
+    for (let j = 0; j < 6; j++) {
+      const b = a + ((j - 2.5) * span) / 7.6;
+      const room = (i * 11 + j * 7) % 19;
+      const window = room < 5 ? darkRoom : room < 11 ? goldLight : room < 17 ? warm : litRoom;
+      for (const floor of [-.036, .062]) {
+        block(hull, gasket, circle(b, radius + .273, floor), vec(.021,.054,.062), b);
+        block(hull, window, circle(b, radius + .284, floor), vec(.010,.036,.037), b);
+        for (const offset of [-.026,.026]) {
+          block(hull, j % 3 === 0 ? light : iron, circle(b, radius + .287, floor + offset), vec(.018,.050,.011), b);
+        }
+      }
+      if (room === 3 || room === 8) {
+        block(hull, faded, circle(b, radius + .299, .062), vec(.015,.048,.047), b);
+      }
     }
-    for (let k = 0; k < 3; k++) {
-      const b = a + (k - 1) * span * 0.205;
-      block(hull, iron, circle(b, radius - 0.053, 0.259), vec(0.163, 0.018, 0.016), b);
+    for (let k = 0; k < 4; k++) {
+      const b = a + (k - 1.5) * span * 0.146;
+      block(hull, k === 3 ? gasket : iron, circle(b, radius - .077, -.236), vec(.23,.015,.032), b);
     }
-    if (i % 5 === 0) {
-      block(hull, dark, circle(a, radius + 0.025, 0.287), vec(0.12, 0.17, 0.07), a);
-      block(hull, cyan, circle(a, radius + 0.025, 0.328), vec(0.072, 0.102, 0.012), a);
+    if (i % 8 === 0 || i === 27) {
+      block(hull, dark, circle(a, radius + .13, .280), vec(.18,.235,.054), a);
+      block(hull, faded, circle(a, radius + .13, .313), vec(.132,.178,.024), a);
+      block(hull, cyan, circle(a, radius + .13, .331), vec(.025,.073,.012), a);
+    }
+    if (i % 5 === 2) {
+      // Exterior utility shelves with bridgeable breaks at the module joints.
+      for (const z of [-.37,.39]) {
+        const p0 = circle(a - .032, radius + .12, z);
+        const p1 = circle(a + .032, radius + .12, z);
+        brace(hull, p0, p1, .012, light);
+        brace(hull, p0, circle(a - .032, radius + .12, z * .68), .010, iron);
+        brace(hull, p1, circle(a + .032, radius + .12, z * .68), .010, iron);
+      }
     }
   }
   torus(rotor, radius, 0.112, 0, dark);
@@ -495,6 +597,16 @@ export function createStation({ shared = false } = {}) {
       next = a + span * 0.5;
     brace(hull, circle(a, radius - 0.11, -0.26), circle(next, radius - 0.11, -0.41), 0.013, faded);
     brace(hull, circle(a, radius - 0.11, -0.41), circle(next, radius - 0.11, -0.26), 0.011, iron);
+  }
+  // Two electrically isolated service rails trace the aft edge of the ring.
+  // Their small supports remain culled when their footprint is subpixel.
+  torus(rotor, radius - .28, .013, -.29, faded);
+  torus(rotor, radius - .34, .016, -.31, oxidized);
+  for (let i = 0; i < count; i++) {
+    const a = i * span;
+    for (const offset of [-.028,.028]) {
+      brace(hull, circle(a + offset,radius - .34,-.31),circle(a + offset,radius - .20,-.185),.013,iron);
+    }
   }
 
   // Five pressure corridors share the load with open tetrahedral bridgework.
@@ -537,8 +649,15 @@ export function createStation({ shared = false } = {}) {
   ];
   for (const [z, r, l, material] of hubSegments) {
     disk(bus, material, z, r, l);
-    disk(bus, dark, z - l / 2, r * 1.035, 0.04);
-    disk(bus, faded, z + l * 0.43, r * 1.04, 0.039);
+    disk(bus, gasket, z - l / 2, r * 1.02, 0.035);
+    disk(bus, iron, z + l * .43, r * 1.057, .029);
+    for (let i = 0; i < 16; i++) {
+      const a = (i * TAU) / 16;
+      block(bus, i % 7 === 1 ? faded : iron, circle(a, r * 1.020, z), vec(.031, r * .32, l * .75), a);
+      if (i % 4 === 0) {
+        block(bus, light, circle(a, r * 1.074, z + l * .43), vec(.023,.025,.025), a);
+      }
+    }
   }
   for (let i = 0; i < 12; i++) {
     const a = (i * TAU) / 12;
@@ -552,8 +671,20 @@ export function createStation({ shared = false } = {}) {
       for (let j = 0; j < 4; j++) {
         block(bus, light, circle(a, 0.48, 0.7 + j * 0.056), vec(0.024, 0.094, 0.013), a);
       }
-      brace(bus, circle(a + 0.11, 0.44, 0.31), circle(a + 0.11, 0.435, 1.31), 0.012, light);
-      brace(bus, circle(a + 0.16, 0.44, 0.31), circle(a + 0.16, 0.435, 1.31), 0.012, gold);
+      for (const [off, mat] of [[.08,light],[.15,oxidized],[.23,iron]]) {
+        const angle = a + off;
+        const pipe = [
+          circle(angle, .39, .31),
+          circle(angle, .478, .38),
+          circle(angle, .478, .86),
+          circle(angle + .08, .406, .98),
+          circle(angle + .08, .406, 1.31),
+          circle(angle + .08, .332, 1.38),
+        ];
+        for (let j = 1; j < pipe.length; j++) brace(bus, pipe[j - 1], pipe[j], .014, mat);
+        block(bus, faded, circle(angle, .459, .47), vec(.057,.027,.03), angle);
+        block(bus, faded, circle(angle, .459, .74), vec(.057,.027,.03), angle);
+      }
     }
   }
   disk(bus, iron, 1.766, 0.237, 0.067);
@@ -564,7 +695,9 @@ export function createStation({ shared = false } = {}) {
     block(bus, i % 2 ? cyan : warm, circle(a, 0.19, 1.85), vec(0.026, 0.046, 0.017), a);
   }
 
-  // Long photovoltaic wings extend from the fixed utility bus, across the silhouette.
+  // The utility bus carries solar wings on one face and radiator panels on
+  // the other. Different support structures make the silhouettes readable
+  // during the side-on tracking shot.
   const ribZ = -1.19;
   for (const side of [-1, 1]) {
     for (const y of [-0.105, 0.105])
@@ -573,7 +706,7 @@ export function createStation({ shared = false } = {}) {
       }
     for (let k = 0; k < 23; k++) {
       const x = 0.25 + k * 0.205;
-      brace(bus, vec(x * side, -0.105, ribZ + 0.07), vec((x + 0.205) * side, 0.105, ribZ + 0.07), 0.016, gold);
+      brace(bus, vec(x * side, -0.105, ribZ + 0.07), vec((x + 0.205) * side, 0.105, ribZ + 0.07), 0.016, faded);
       brace(bus, vec(x * side, 0.105, ribZ - 0.07), vec((x + 0.205) * side, -0.105, ribZ - 0.07), 0.015, iron);
     }
     for (let k = 0; k < 3; k++) {
@@ -584,22 +717,68 @@ export function createStation({ shared = false } = {}) {
         const h = k === 0 ? 1.24 : 1.12,
           w = 0.76;
         bus.put(plate, array, vec(x, y, z), vec(w, h, 1), [0, 0, 0]);
-        for (const sx of [-1, 1]) block(bus, gold, vec(x + (sx * w) / 2, y, z), vec(0.023, h + 0.03, 0.038));
+        for (const sx of [-1, 1]) block(bus, iron, vec(x + (sx * w) / 2, y, z), vec(0.023, h + 0.03, 0.038));
         for (const sy of [-1, 1]) block(bus, faded, vec(x, y + (sy * h) / 2, z), vec(w, 0.025, 0.035));
         block(bus, faded, vec(x, y, z - 0.018), vec(0.026, h, 0.05));
         block(bus, dark, vec(x, y * 0.61, z - 0.042), vec(0.06, Math.abs(y) * 0.75, 0.07));
+        for (const off of [-.22,.22]) {
+          brace(bus, vec(x + off, y - sign * .49,z - .04),vec(x + off,y + sign * .49,z - .04),.010,faded);
+          brace(bus, vec(x + off, y - sign * .48,z - .041),vec(x + off * 1.13,y * .56,z - .045),.008,iron);
+        }
       }
     }
     block(bus, side > 0 ? red : cyan, vec(side * 4.99, 0, ribZ), vec(0.047, 0.11, 0.115));
   }
 
   for (const side of [-1, 1]) {
-    const y = side * 0.47;
-    brace(bus, vec(0, y * 0.6, -0.85), vec(0, y * 2.5, -1.16), 0.043, gold);
-    bus.put(capsule, white, vec(0, y * 2.48, -1.14), vec(0.34, 0.23, 0.32));
-    brace(bus, vec(0, y * 2.52, -1.13), vec(0.15, y * 2.96, -1.4), 0.029, iron);
-    bus.put(capsule, gold, vec(0.15, y * 2.96, -1.4), vec(0.22, 0.22, 0.085), [0.65, 0.2, 0]);
+    const x = side * 1.54;
+    const y = side === 1 ? -0.84 : .68;
+    const z = -1.58;
+    brace(bus, vec(side * .77, 0, -1.21), vec(x, y, z), .046, iron);
+    brace(bus, vec(side * .94, .04, -1.12), vec(x, y, z + .46), .032, faded);
+    block(bus, dark, vec(x, y, z + .25), vec(.69,.056,.77));
+    for (let i = 0; i < 8; i++) {
+      const j = x + (i - 3.5) * .083;
+      block(bus, i % 3 === 1 ? light : faded, vec(j,y + .038,z + .25),vec(.069,.037,.765));
+      brace(bus, vec(j,y - .045,z - .12),vec(j,y - .045,z + .62),.011,iron);
+    }
+    for (const zEnd of [z - .16, z + .66]) {
+      brace(bus, vec(x - .372,y,zEnd),vec(x + .372,y,zEnd),.036,iron);
+    }
+    for (const sidePipe of [-1, 1]) {
+      const end = vec(x + sidePipe * .368,y - .059,z - .129);
+      brace(bus, end.clone().add(vec(0,0,.747)), end, .017, oxidized);
+      brace(bus, end, vec(x + sidePipe * .33,y + .106,z - .17), .017, oxidized);
+    }
   }
+
+  const tank = vec(-.24, -.82, -.96);
+  const tankShell = new THREE.CapsuleGeometry(.158, .49, 6, 16);
+  bus.put(tankShell, faded, tank, scale, [.28,0,.44]);
+  for (const z of [-1.1,-.87]) {
+    brace(bus, vec(-.19,-.3,z),vec(-.24,-.86,z),.039,iron);
+    brace(bus, vec(-.42,-.91,z),vec(-.14,-.72,z),.024,light);
+  }
+  const dish = new THREE.Group();
+  dish.position.set(.15, .99, -1.49);
+  dish.rotation.set(.69, -.22, -.53);
+  frame.add(dish);
+  detail?.part(dish, .66);
+  const dishProfile = [
+    [0, 0], [.07,.004], [.144,.014], [.21,.032], [.27,.057], [.33,.086]
+  ].map(([r,z]) => new THREE.Vector2(r,z));
+  const reflector = new THREE.Mesh(new THREE.LatheGeometry(dishProfile, 32), light.clone());
+  reflector.material.side = THREE.DoubleSide;
+  reflector.rotation.x = Math.PI * .5;
+  dish.add(reflector);
+  const antenna = assembly(dish, detail);
+  for (let i = 0; i < 6; i++) {
+    brace(antenna,circle(i * TAU / 6,.293,.072),vec(0,0,.213),.012,faded);
+  }
+  antenna.put(cylinder, iron, vec(0,0,.196),vec(.034,.091,.034),[Math.PI / 2,0,0]);
+  antenna.finish();
+  brace(bus, vec(0,.35,-1.19), dish.position, .052, iron);
+  brace(bus, vec(.13,.41,-1.44), vec(.15,.81,-1.46), .021, oxidized);
   const namePlate = new THREE.Mesh(plate, stationInsignia());
   namePlate.position.set(0, 0.035, 1.837);
   namePlate.scale.set(0.28, 0.07, 1);

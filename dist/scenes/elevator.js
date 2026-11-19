@@ -18,24 +18,85 @@ function steel(color, roughness = 0.58, metalness = 0.45) {
   return new THREE.MeshStandardMaterial({ color, roughness, metalness });
 }
 
+// Small-scale milling and abrasion live in a shared repeat texture. The doors,
+// panel breaks and bolted flanges use separately modelled silhouette geometry.
+function rolledFinish() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const pixels = ctx.createImageData(canvas.width, canvas.height);
+  let seed = 108799;
+  for (let y = 0; y < canvas.height; y++) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const grain = 9 * Math.sin(y * 0.31) + 16 * (seed / 2 ** 32 - 0.5);
+    for (let x = 0; x < canvas.width; x++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      const pin = seed / 2 ** 32;
+      const spec = 146 + grain * (0.4 + 0.6 * Math.cos(x * 0.018) ** 2) + 22 * (pin - 0.5);
+      const i = (y * canvas.width + x) * 4;
+      pixels.data[i] = pixels.data[i + 1] = pixels.data[i + 2] = spec;
+      pixels.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(pixels, 0, 0);
+  ctx.globalAlpha = .42;
+  for (let i = 0; i < 32; i++) {
+    const x = (34 + i * 139) % 256, y = (19 + i * 47) % 128;
+    ctx.fillStyle = i % 3 ? '#d6d6d6' : '#454545';
+    ctx.fillRect(x, y, 3 + (i * 11) % 29, 1);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function chamferedPlate() {
+  const frame = new THREE.Shape();
+  frame.moveTo(-0.38, -0.46);
+  frame.lineTo(0.38, -0.46);
+  frame.lineTo(0.46, -0.34);
+  frame.lineTo(0.46, 0.34);
+  frame.lineTo(0.38, 0.46);
+  frame.lineTo(-0.38, 0.46);
+  frame.lineTo(-0.46, 0.34);
+  frame.lineTo(-0.46, -0.34);
+  frame.closePath();
+  const geometry = new THREE.ExtrudeGeometry(frame, {
+    depth: .92, bevelThickness: .04, bevelSize: .04, bevelSegments: 1, steps: 1,
+  });
+  geometry.translate(0, 0, -.46);
+  // ExtrudeGeometry's default UVs assume world coordinates extending from
+  // zero. Map the centred profile across the whole abrasion sheet instead.
+  const vertices = geometry.attributes.position;
+  const normals = geometry.attributes.normal;
+  const uv = geometry.attributes.uv;
+  for (let i = 0; i < vertices.count; i++) {
+    const axle = Math.abs(normals.getZ(i)) >= .5;
+    const right = Math.abs(normals.getX(i)) >= Math.abs(normals.getY(i));
+    const u = axle || !right ? vertices.getX(i) : vertices.getZ(i);
+    const v = axle || right ? vertices.getY(i) : vertices.getZ(i);
+    uv.setXY(i, .5 + u, .5 + v);
+  }
+  return geometry;
+}
+
 function label(text, subtext) {
   const cv = document.createElement('canvas');
   cv.width = 512;
   cv.height = 192;
   const ctx = cv.getContext('2d');
-  ctx.fillStyle = '#d9d8ca';
-  ctx.fillRect(0, 0, 512, 192);
-  ctx.fillStyle = '#d07935';
-  ctx.fillRect(0, 0, 15, 192);
-  ctx.fillStyle = '#24303b';
-  ctx.font = 'bold 73px Arial';
-  ctx.fillText(text, 33, 102);
-  ctx.font = 'bold 22px monospace';
-  ctx.fillText(subtext, 36, 153);
-  ctx.fillRect(33, 120, 441, 3);
+  ctx.fillStyle = '#c0bdb1';
+  ctx.font = 'bold 88px monospace';
+  ctx.fillText(text, 42, 112);
+  ctx.font = '26px monospace';
+  ctx.fillText(subtext, 45, 158);
+  ctx.fillRect(45, 126, 402, 3);
+  ctx.fillStyle = '#a37a41';
+  ctx.fillRect(7, 25, 16, 130);
   const map = new THREE.CanvasTexture(cv);
   map.colorSpace = THREE.SRGBColorSpace;
-  const material = new THREE.MeshStandardMaterial({ map, roughness: 0.7, metalness: 0.06 });
+  const material = new THREE.MeshStandardMaterial({ map, roughness: .86, alphaTest: .15, metalness: .08 });
   return material;
 }
 
@@ -81,7 +142,6 @@ function suspensionCables(bottom = -75, top = 75) {
   geo.setAttribute('wire', new THREE.Float32BufferAttribute(details, 2));
   geo.setIndex(index);
   const material = new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 } },
     side: THREE.DoubleSide,
     vertexShader: [
       'attribute vec2 wire; varying vec2 knot; varying vec3 n,pos;',
@@ -89,12 +149,14 @@ function suspensionCables(bottom = -75, top = 75) {
       'pos=(modelMatrix*vec4(position,1.)).xyz;gl_Position=projectionMatrix*viewMatrix*vec4(pos,1.);}',
     ].join('\n'),
     fragmentShader: [
-      'uniform float time;varying vec2 knot;varying vec3 n,pos;',
-      'void main(){vec3 normal=normalize(n),eye=normalize(cameraPosition-pos),sun=normalize(vec3(-.45,.65,.60));',
-      'vec3 col=vec3(.051,.082,.108)+vec3(.50,.51,.51)*max(0.,dot(normal,sun));',
-      'float glint=pow(max(0.,dot(normal,normalize(eye+sun))),12.);',
-      'float sweep=pow(.5+.5*cos(knot.x*.80-time*1.38+knot.y*2.40),10.);',
-      'col+=vec3(.76,.93,1.24)*glint*(.6+sweep*3.0)+vec3(.50,.64,.89)*sweep*.36;',
+      'varying vec2 knot;varying vec3 n,pos;',
+      'void main(){vec3 normal=normalize(n),eye=normalize(cameraPosition-pos),sun=normalize(vec3(.92,.56,-.10));',
+      'float fine=.83+.17*cos(knot.x*83.+knot.y*7.1);',
+      'vec3 col=(vec3(.026,.039,.054)+vec3(.20,.17,.14)*max(0.,dot(normal,sun)))*fine;',
+      'float glint=pow(max(0.,dot(normal,normalize(eye+sun))),42.);',
+      'vec3 earth=normalize(vec3(-.63,-.60,.35));',
+      'float bounce=pow(max(0.,dot(normal,normalize(eye+earth))),13.);',
+      'col+=vec3(.92,.82,.70)*glint*.68+vec3(.15,.30,.49)*bounce;',
       'gl_FragColor=vec4(col,1.);',
       '#include <tonemapping_fragment>',
       '#include <colorspace_fragment>',
@@ -149,27 +211,54 @@ export function createElevator({ shared = false } = {}) {
   installation.add(cables);
   detail?.part(cables, 0.18);
   const coating = paintwork(),
-    array = solarSurface();
-  const white = steel(0xc1cbd0, 0.63, 0.32),
-    steelBlue = steel(0x72859a),
-    ivory = steel(0xd5c9a4),
-    graphite = steel(0x344554, 0.55, 0.44),
-    black = steel(0x18222f, 0.7, 0.24),
-    bronze = steel(0xb38245, 0.49, 0.4);
-  for (const material of [white, steelBlue, ivory, bronze]) material.map = coating;
-  const blueLight = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.34, 1.02, 1.65) });
-  const warmLight = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.45, 0.77, 0.28) });
-  const navBlue = steel(0x1a4359, 0.26, 0.51);
-  navBlue.emissive.setHex(0x092736);
+    array = solarSurface(),
+    mill = rolledFinish();
+  const white = steel(0xa7afb0, .81, .36),
+    steelBlue = steel(0x657786, .76, .71),
+    ivory = steel(0x9a9990, .78, .54),
+    graphite = steel(0x45515a, .72, .6),
+    black = steel(0x131e25, .88, .31),
+    bronze = steel(0x887354, .79, .68),
+    coatingGray = steel(0x7f898f, .82, .41),
+    hazard = steel(0x9b6941, .74, .38);
+  for (const material of [white, steelBlue, ivory, bronze, coatingGray, graphite, hazard]) {
+    material.roughnessMap = mill;
+    material.bumpMap = mill;
+    material.bumpScale = .000068;
+  }
+  white.map = coating;
+  const blueLight = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.22, .59, .88) });
+  const warmLight = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.16, .68, .31) });
+  const navBlue = steel(0x162933, .28, .62);
+  navBlue.emissive.setHex(0x102a31);
+  navBlue.emissiveIntensity = .52;
   const box = new THREE.BoxGeometry();
   const cylinder = new THREE.CylinderGeometry(1, 1, 1, 32);
   const rod = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true);
   const plate = new THREE.PlaneGeometry();
   const capsule = new THREE.SphereGeometry(1, 20, 12);
+  const armor = chamferedPlate();
+  const hex = new THREE.CylinderGeometry(1, 1, 1, 6);
+  const equipmentShell = new THREE.CylinderGeometry(1, .94, 1, 16);
   const terminal = assembly(installation, detail),
     vehicle = assembly(climber, detail);
   const boxAt = (batch, m, x, y, z, w, h, d, angle = 0) => batch.put(box, m, V(x, y, z), V(w, h, d), [0, angle, 0]);
   const cylinderAt = (batch, m, x, y, z, r, h, rot = [0, 0, 0]) => batch.put(cylinder, m, V(x, y, z), V(r, h, r), rot);
+  function face(batch, geometry, material, angle, radius, height, tangent, w, h, d) {
+    const p = pointOnRing(angle, radius, height);
+    p.x += Math.cos(angle) * tangent;
+    p.z -= Math.sin(angle) * tangent;
+    batch.put(geometry, material, p, V(w, h, d), [0, angle, 0]);
+  }
+  function bolts(batch, angle, radius, height, separation, r = .027) {
+    for (const tangent of [-separation, separation]) {
+      const p = pointOnRing(angle, radius, height);
+      p.x += Math.cos(angle) * tangent;
+      p.z -= Math.sin(angle) * tangent;
+      const turn = new THREE.Quaternion().setFromUnitVectors(up, pointOnRing(angle, 1, 0));
+      batch.put(hex, steelBlue, p, V(r, .019, r), turn);
+    }
+  }
   function brace(batch, m, a, b, r) {
     const direction = b.clone().sub(a);
     batch.put(
@@ -204,8 +293,11 @@ export function createElevator({ shared = false } = {}) {
       const a = 0.16 + (c * TAU) / 3,
         p = pointOnRing(a, 0.52, y),
         q = pointOnRing(a + TAU / 3, 0.52, y);
-      cylinderAt(terminal, bronze, p.x, y, p.z, 0.107, 0.19);
-      brace(terminal, steelBlue, p, q, 0.026);
+      cylinderAt(terminal, graphite, p.x, y, p.z, 0.104, 0.21);
+      for (const offset of [-.115, .115]) cylinderAt(terminal, ivory, p.x, y + offset, p.z, .109, .035);
+      brace(terminal, steelBlue, p, q, 0.033);
+      const tip = q.clone().addScaledVector(up, 0.34);
+      brace(terminal, graphite, p.clone().addScaledVector(up, -.25), tip, .025);
     }
   }
   // The upper terminal is an open ring: a vehicle can travel between the guide bogies.
@@ -231,6 +323,11 @@ export function createElevator({ shared = false } = {}) {
       const q = pointOnRing(a, 1.14, deckY);
       boxAt(terminal, white, q.x, q.y, q.z, 0.34, 0.82, 0.44, a);
       brace(terminal, bronze, pointOnRing(a, 0.68, deckY - 0.43), pointOnRing(a, 1.43, deckY + 0.4), 0.075);
+      face(terminal, armor, graphite, a, 1.64, deckY - .24, 0, .38, .29, .17);
+      for (const off of [-.091, -.025, .041, .107]) {
+        face(terminal, box, black, a, 1.733, deckY - .25 + off, 0, .28, .031, .025);
+      }
+      bolts(terminal, a, 1.74, deckY - .357, .132);
     }
   }
 
@@ -262,6 +359,19 @@ export function createElevator({ shared = false } = {}) {
         );
     }
     cylinderAt(terminal, white, sign * 2.07, deckY + 0.27, 0.17, 0.38, 1.58, [0, 0, Math.PI / 2]);
+    // Service lines run underneath the gallery rather than floating on its skin.
+    for (const [height, zOffset, material] of [
+      [-.27, .26, graphite],
+      [-.34, .25, steelBlue],
+      [-.29, -.24, bronze],
+    ]) {
+      const zs = z + zOffset;
+      brace(terminal, material, V(sign * 1.40, deckY + height, zs), V(sign * 2.55, deckY + height, zs), .037);
+      brace(terminal, material, V(sign * 2.55, deckY + height, zs), V(sign * 2.71, deckY - .14, zs + .11), .037);
+      for (const x of [1.59, 1.94, 2.28, 2.56]) {
+        cylinderAt(terminal, coatingGray, sign * x, deckY + height, zs, .053, .045, [0, 0, Math.PI / 2]);
+      }
+    }
     for (const off of [-0.69, -0.39, 0.34, 0.71])
       cylinderAt(
         terminal,
@@ -308,45 +418,87 @@ export function createElevator({ shared = false } = {}) {
     }
   }
 
-  // An independently moving passenger and cargo climber surrounds the axial cables.
-  for (const y of [-0.86, 0.77]) {
-    hoop(climber, 0.78, 0.081, y, bronze, 48);
-    hoop(climber, 0.65, 0.09, y + 0.1, graphite, 48);
+  // The bogies clamp around three separate cable guides. Paired structural
+  // collars take their loads into a faceted pressure shell at either end.
+  for (const y of [-0.80, .74]) {
+    hoop(climber, .72, .061, y, graphite, 48);
+    hoop(climber, .81, .034, y + .038, ivory, 48);
+    hoop(climber, .65, .047, y + .068, black, 48);
     for (let i = 0; i < 3; i++) {
-      const a = 0.16 + (i * TAU) / 3,
-        p = pointOnRing(a, 0.62, y + 0.025);
-      vehicle.put(capsule, steelBlue, p, V(0.18, 0.23, 0.18));
+      const a = .16 + (i * TAU) / 3,
+        p = pointOnRing(a, .59, y + .045);
+      vehicle.put(armor, graphite, p, V(.31, .25, .36), [0, a, 0]);
+      const rollerLeft = pointOnRing(a - .16, .55, y + .169),
+        rollerRight = pointOnRing(a + .16, .55, y + .169);
+      for (const roller of [rollerLeft, rollerRight]) {
+        cylinderAt(vehicle, steelBlue, roller.x, roller.y, roller.z, .071, .08, [0, a, Math.PI / 2]);
+      }
+      face(vehicle, armor, coatingGray, a, .758, y - .025, 0, .22, .115, .15);
     }
   }
   for (let n = 0; n < 6; n++) {
-    const a = (n * TAU) / 6,
-      p = pointOnRing(a, 0.85, 0);
-    boxAt(vehicle, n % 2 ? white : bronze, p.x, -0.04, p.z, 0.66, 1.24, 0.43, a);
-    const outward = (r, y) => pointOnRing(a, r, y);
-    const brow = outward(1.085, 0.31);
-    boxAt(vehicle, graphite, brow.x, brow.y, brow.z, 0.69, 0.38, 0.06, a);
-    for (let i = -1; i <= 1; i++) {
-      const glass = outward(1.125, 0.34),
-        dx = i * 0.184;
-      boxAt(vehicle, navBlue, glass.x + Math.cos(a) * dx, glass.y, glass.z - Math.sin(a) * dx, 0.157, 0.17, 0.026, a);
+    const a = n * TAU / 6;
+    face(vehicle, armor, graphite, a, .755, -.035, 0, .79, 1.41, .51);
+    // Hold the original cabin envelope. Its cream thermal blanket now reads
+    // as alternating removable panels over a recessed structural core.
+    for (const sign of [-1, 1]) {
+      face(vehicle, armor, steelBlue, a, .949, .007, sign * .329, .114, 1.15, .19);
+      face(vehicle, armor, white, a, 1.004, -.187, sign * .136, .246, .58, .12);
+      face(vehicle, armor, ivory, a, .961, -.581, sign * .109, .187, .131, .20);
+      const railBottom = pointOnRing(a + sign * .36, .916, -.73);
+      const railTop = pointOnRing(a + sign * .36, .916, .68);
+      brace(vehicle, steelBlue, railBottom, railTop, .043);
     }
-    for (const offset of [-0.3, 0.3]) {
-      const x = p.x + Math.cos(a) * offset,
-        z = p.z - Math.sin(a) * offset;
-      brace(vehicle, ivory, V(x, -0.68, z), V(x, 0.63, z), 0.043);
+    face(vehicle, armor, black, a, 1.031, .313, 0, .565, .292, .12);
+    face(vehicle, armor, coatingGray, a, 1.053, .488, 0, .567, .099, .126);
+    for (const offset of [-.174, 0, .174]) {
+      face(vehicle, armor, navBlue, a, 1.095, .313, offset, .137, .177, .023);
+      face(vehicle, box, n % 3 === 1 && offset === 0 ? warmLight : steelBlue,
+        a, 1.111, .342, offset, .117, .028, .016);
+      // Indirect light catches an unlit central mullion. Only a few cabin
+      // windows show light; the glazing keeps dark recesses close to the lens.
+      if ((n + (offset ? 3 : 0)) % 3 === 1) {
+        face(vehicle, box, warmLight, a, 1.109, .293, offset - .022, .076, .009, .013);
+        face(vehicle, box, black, a, 1.117, .313, offset + .019, .019, .173, .018);
+      }
+    }
+    face(vehicle, armor, black, a, 1.057, -.437, 0, .477, .204, .053);
+    for (let j = 0; j < 5; j++) {
+      face(vehicle, box, coatingGray, a, 1.092, -.507 + j * .036, 0, .411, .012, .036);
+    }
+    bolts(vehicle, a, 1.092, -.308, .223);
+    bolts(vehicle, a, 1.123, .494, .23, .019);
+    face(vehicle, armor, n % 2 ? steelBlue : hazard, a, .962, .638, 0, .51, .096, .143);
+    for (const offset of [-.144, .144]) {
+      face(vehicle, box, n % 2 ? warmLight : blueLight, a, 1.039, .657, offset, .048, .027, .031);
+    }
+    for (let i = 0; i < 4; i++) {
+      face(vehicle, box, i % 2 ? black : hazard, a, 1.116, -.59, -.18 + i * .12, .081, .036, .026);
     }
     if (n % 2 === 0) {
-      for (let j = 0; j < 4; j++) {
-        const q = outward(1.088, -0.46 + j * 0.103);
-        boxAt(vehicle, graphite, q.x, q.y, q.z, 0.42, 0.049, 0.038, a);
+      // Tucked into the bevel is a shock-isolated auxiliary pneumatic bottle.
+      // Its shoulders, separate bands and plumbing stay readable as a silhouette.
+      const bottleAngle = a + .47;
+      const foot = pointOnRing(bottleAngle, .937, -.518);
+      const neck = pointOnRing(bottleAngle, .937, .319);
+      const center = foot.clone().lerp(neck, .5);
+      vehicle.put(equipmentShell, coatingGray, center, V(.094, .62, .094));
+      for (const end of [-.30, .30]) {
+        const cap = center.clone().addScaledVector(up, end);
+        vehicle.put(capsule, steelBlue, cap, V(.092, .074, .092));
       }
-      const q = outward(0.97, 0.67);
-      boxAt(vehicle, warmLight, q.x, q.y, q.z, 0.33, 0.045, 0.045, a);
+      for (const h of [-.36, .19]) {
+        cylinderAt(vehicle, graphite, foot.x, h, foot.z, .111, .043);
+      }
+      cylinderAt(vehicle, bronze, neck.x, .299, neck.z, .058, .069);
+      const feed = pointOnRing(bottleAngle, .951, .505);
+      brace(vehicle, bronze, neck, feed, .025);
+      brace(vehicle, steelBlue, feed, pointOnRing(bottleAngle, .718, .581), .025);
     }
   }
   const identity = new THREE.Mesh(plate, label('ASC–04', 'UEG EQUATORIAL LIFT'));
-  identity.position.set(0, -0.19, 1.11);
-  identity.scale.set(0.57, 0.22, 1);
+  identity.position.set(0, -.151, 1.071);
+  identity.scale.set(.48, .19, 1);
   climber.add(identity);
   detail?.part(identity, 0.22);
   const plateOnDock = new THREE.Mesh(plate, label('PORT 01', 'ORBITAL TRANSFER'));
@@ -378,36 +530,65 @@ export function createElevator({ shared = false } = {}) {
         depthWrite: false,
         vertexShader: `varying float dist;void main(){vec4 p=modelViewMatrix*vec4(position,1.);dist=length(p.xyz);gl_Position=projectionMatrix*p;}`,
         fragmentShader: `varying float dist;void main(){
-        gl_FragColor=vec4(.66,.78,.85,.86*smoothstep(.26,1.10,dist));
+        gl_FragColor=vec4(.49,.64,.73,.72*smoothstep(.26,1.10,dist));
         #include <colorspace_fragment>
       }`,
       }),
     );
     installation.add(lines);
-    cylinderAt(terminal, graphite, 0, bottom + 0.12, 0, 1.75, 0.24);
-    cylinderAt(terminal, ivory, 0, bottom + 0.52, 0, 1.12, 0.24);
-    cylinderAt(terminal, bronze, 0, bottom + 0.72, 0, 0.74, 0.16);
-    for (let i = 0; i < 6; i++) {
-      const a = (i * TAU) / 6;
-      brace(terminal, steelBlue, pointOnRing(a, 1.56, bottom + 0.2), pointOnRing(a, 0.56, bottom + 1.5), 0.12);
+    cylinderAt(terminal, graphite, 0, bottom + .12, 0, 2.08, .24);
+    cylinderAt(terminal, black, 0, bottom + .254, 0, 1.9, .08);
+    cylinderAt(terminal, ivory, 0, bottom + .38, 0, 1.68, .18);
+    cylinderAt(terminal, graphite, 0, bottom + .54, 0, 1.05, .21);
+    cylinderAt(terminal, bronze, 0, bottom + .72, 0, .72, .16);
+    for (let i = 0; i < 12; i++) {
+      const a = i * TAU / 12,
+        foot = pointOnRing(a, 1.78, bottom + .237),
+        head = pointOnRing(a, .77, bottom + .91);
+      face(terminal, armor, graphite, a, 1.78, bottom + .23, 0, .48, .36, .49);
+      face(terminal, box, coatingGray, a, 1.92, bottom + .46, 0, .25, .088, .24);
+      brace(terminal, steelBlue, foot, head, .074);
+      if (i % 2 === 0) {
+        brace(terminal, graphite, head, pointOnRing(a + .14, .56, bottom + 1.4), .066);
+      }
+      face(terminal, box, i % 3 ? blueLight : warmLight, a, 2.015, bottom + .41, .077, .09, .035, .034);
+      bolts(terminal, a, 2.029, bottom + .28, .14, .022);
     }
     for (const a of [0.16, TAU / 3 + 0.16, (TAU * 2) / 3 + 0.16]) {
       const foot = pointOnRing(a, 0.52, top - 0.43);
       brace(terminal, bronze, foot, V(0, top - 0.16, 0), 0.098);
-      cylinderAt(terminal, steelBlue, foot.x, top - 0.36, foot.z, 0.21, 0.54);
+      cylinderAt(terminal, graphite, foot.x, top - .425, foot.z, .164, .39);
+      cylinderAt(terminal, steelBlue, foot.x, top - .588, foot.z, .177, .073);
+      cylinderAt(terminal, ivory, foot.x, top - .334, foot.z, .177, .073);
     }
-    cylinderAt(terminal, graphite, 0, top - 0.16, 0, 0.61, 0.31);
-    cylinderAt(terminal, ivory, 0, top - 0.02, 0, 0.53, 0.26);
+    cylinderAt(terminal, graphite, 0, top - .15, 0, .59, .26);
+    cylinderAt(terminal, steelBlue, 0, top - .012, 0, .635, .082);
+    cylinderAt(terminal, ivory, 0, top + .072, 0, .52, .091);
+    const capHeight = top + .142;
+    cylinderAt(terminal, coatingGray, 0, capHeight, 0, .335, .082);
+    for (let i = 0; i < 10; i++) {
+      const a = i * TAU / 10;
+      face(terminal, armor, graphite, a, .603, top - .104, 0, .126, .221, .092);
+      face(terminal, box, black, a, .657, top - .153, 0, .076, .043, .027);
+      bolts(terminal, a, .653, top - .077, .044, .017);
+    }
     brace(terminal, steelBlue, V(0, top - 0.24, 0), V(-2, top - 0.7, -0.36), 0.048);
     for (const sign of [-1, 1]) {
-      boxAt(terminal, bronze, sign * 0.67, top - 0.2, 0, 0.37, 0.63, 0.43);
-      boxAt(terminal, blueLight, sign * 0.67, top - 0.14, 0.23, 0.13, 0.06, 0.025);
+      terminal.put(armor, graphite, V(sign * .665, top - .2, 0), V(.365, .59, .40));
+      terminal.put(armor, hazard, V(sign * .67, top - .16, .201), V(.254, .393, .076));
+      boxAt(terminal, steelBlue, sign * .67, top - .399, .163, .268, .067, .102);
+      boxAt(terminal, blueLight, sign * .67, top - .14, .251, .099, .044, .027);
     }
   }
   for (const h of [-0.33, 0.25]) {
     const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.23, 0.52, 10), h < 0 ? bronze : white);
     pod.position.set(0, h, -0.38);
     returnCar.add(pod);
+    for (const off of [-.19, .19]) {
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(.272, .272, .044, 12), graphite);
+      band.position.set(0, h + off, -.38);
+      returnCar.add(band);
+    }
   }
   // Two axial transfer galleries clear the cableway and the transverse solar arrays.
   const ports = {};
@@ -483,7 +664,6 @@ export function createElevator({ shared = false } = {}) {
       shared ? returnBottom + 0.93 : -5.7,
       ascent,
     );
-    cables.material.uniforms.time.value = elapsed;
     for (const blink of lamps) blink(elapsed);
   }
   update(0, 0);

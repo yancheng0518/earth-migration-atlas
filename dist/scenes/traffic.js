@@ -38,12 +38,12 @@ const geometries = {
   sphere: new THREE.SphereGeometry(1, 16, 10),
   bell: new THREE.CylinderGeometry(0.67, 1, 1, 12),
 };
-const steel = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.29, roughness: 0.53 });
+const steel = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.36, roughness: 0.61 });
 const light = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.5, 1.5, 1.5) });
-const ivory = 0xdddcd2,
-  steelBlue = 0x8297ad,
-  orange = 0xcf7838,
-  paint = 0xb6a575,
+const ivory = 0xc4c4b9,
+  steelBlue = 0x758493,
+  orange = 0xa6643d,
+  paint = 0x9f9071,
   graphite = 0x394653,
   black = 0x202e39;
 const engineBlue = 0x8fe7ff;
@@ -297,11 +297,17 @@ function vessel(kind, scale, callsign) {
     vertexShader: `varying vec2 vUv; varying vec3 n,v;
       void main(){vUv=uv;vec4 p=modelViewMatrix*vec4(position,1.);v=-p.xyz;n=normalMatrix*normal;
       gl_Position=projectionMatrix*p;}`,
-    fragmentShader: `varying vec2 vUv; varying vec3 n,v; uniform float power;
-      void main(){float axial=pow(1.0-vUv.y,1.8);float column=pow(abs(dot(normalize(n),normalize(v))),1.7);
-      float shock=.88+.12*cos(vUv.y*45.);
-      gl_FragColor=vec4(mix(vec3(.08,.16,.99),vec3(.65,.90,1.),axial),axial*column*shock*power*.80);}`,
-    uniforms: { power: { value: 1 } },
+    fragmentShader: `varying vec2 vUv; varying vec3 n,v; uniform float power,time;
+      void main(){
+        float axial=pow(1.0-vUv.y,1.78);
+        float column=pow(abs(dot(normalize(n),normalize(v))),1.65);
+        float flow=42.*vUv.y-11.*time;
+        float cells=.67+.33*cos(flow+sin(flow*.53+vUv.x*14.)*1.9);
+        vec3 tint=mix(vec3(.13,.24,.86),vec3(.55,.82,1.22),axial);
+        gl_FragColor=vec4(tint,axial*column*cells*power*.76);
+        #include <colorspace_fragment>
+      }`,
+    uniforms: { power: { value: 1 }, time: { value: 0 } },
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
@@ -326,6 +332,7 @@ function vessel(kind, scale, callsign) {
     const drive = 0.2 + power * (0.85 + 0.075 * Math.sin(seconds * 12.1));
     for (const nozzle of jets.children) nozzle.scale.y = 0.13 + drive * 0.7;
     jetMaterials.uniforms.power.value = 0.3 + power * 0.7;
+    jetMaterials.uniforms.time.value = seconds;
     if (!camera || !height) return;
     const pixels =
       (height * camera.zoom * scale) /

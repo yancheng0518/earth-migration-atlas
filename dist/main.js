@@ -315,6 +315,7 @@ function enterFilm(replay = false) {
 }
 function leaveStartGate() {
   delete document.body.dataset.filmGate;
+  $('mode-film').lastChild.textContent = '电影模式';
   $('start-silent').hidden = true;
   put('film-start-status', '');
   if (document.activeElement?.closest('.film-quick')) $('space').focus({ preventScroll: true });
@@ -380,7 +381,7 @@ function toggleFilm() {
   playButton();
   showControls();
 }
-function choose(id) {
+function choose(id, initial = false) {
   if (!ready || startingWithSound || !dossiers[id]) return;
   if (mode !== 'explore') {
     timeline.pause();
@@ -391,7 +392,7 @@ function choose(id) {
   if (staticMode) {
     showImage(id);
     if (selected !== id) describeDestination(id);
-  } else world.explore(id);
+  } else world.explore(id, initial);
 }
 const exploreReadings = {
   earth: [94.7, 31.3, 1.02, 0, 35786, 499],
@@ -571,10 +572,8 @@ $('film-progress').addEventListener('input', (e) => seek((Number(e.target.value)
 jumpButtons.forEach((b, i) => (b.onclick = () => seek(startTimes[i])));
 $('mode-film').onclick = () => {
   if (mode === 'film' && !done) return;
-  if (awaitingStart()) {
-    setMode('film');
-    paintFilm(true);
-  } else enterFilm();
+  if (awaitingStart()) startWithSound();
+  else enterFilm();
 };
 $('mode-explore').onclick = () => {
   if (mode !== 'explore') choose('earth');
@@ -659,12 +658,10 @@ try {
   });
 } catch (err) {
   console.warn('WebGL initialization failed; using recorded scene frames.', err);
-  loseWebGL('sun');
+  loseWebGL('earth');
 }
 progress(100, '观测系统就绪');
 ready = true;
-setMode('film');
-paintFilm(true);
-playButton();
+choose('earth', true);
 $('score-unlock').disabled = false;
 $('loading').hidden = true;

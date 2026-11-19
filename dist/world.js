@@ -41,11 +41,11 @@ export async function openWorld({
     sky = makeSky();
   scene.background = new THREE.Color(0x0a0a1a);
   const camera = new THREE.PerspectiveCamera(40, 1, 0.025, 1400);
-  const solar = new THREE.DirectionalLight(0xffead8, 2.2);
+  const solar = new THREE.DirectionalLight(0xffe6cb, 2.2);
   solar.position.set(0.92, 0.56, -0.1);
-  const bounce = new THREE.DirectionalLight(0x9abdff, 1.05);
-  bounce.position.set(-0.42, 0.15, 1);
-  const hemi = new THREE.HemisphereLight(0xc4dbff, 0x384b68, 1.33);
+  const bounce = new THREE.DirectionalLight(0xb4c9e6, 0.72);
+  bounce.position.set(-0.38, -0.44, 1);
+  const hemi = new THREE.HemisphereLight(0xc8d5e2, 0x484e60, 0.92);
   scene.add(sky.group, solar, bounce, hemi);
   const reflections = installReflections(scene, renderer);
 
@@ -293,7 +293,7 @@ export async function openWorld({
     Object.assign(frame, { index, p, time });
     curtain.style.opacity = '0';
   }
-  function explore(id = 'earth') {
+  function explore(id = 'earth', initial = false) {
     if (!exploring) {
       departureEye.copy(camera.position);
       departureAim.copy(lastAim);
@@ -309,7 +309,7 @@ export async function openWorld({
       navigation.reset();
       cinematography.resumeNavigation(frame.time);
       if (visibleScale > 0) navigation.resumeShot('engine', -visibleScale, celestialOrbit);
-      handoff = reduced.matches ? 1 : 0;
+      handoff = initial || reduced.matches ? 1 : 0;
       exploring = true;
       elapsed = frame.time;
       // Preserve continuity of the moving station when leaving a film chapter.

@@ -321,11 +321,14 @@ function makeArray(ignition, visibility, shared) {
       varying float seed, sideView, power;
       void main() {
         float x=beamUV.x, h=beamUV.y;
-        float filament = exp(-abs(x)*8.);
-        float mist = exp(-x*x*3.5);
-        float wave=.94+.06*sin(h*19.-time*2.8+seed);
-        float alpha=(0.72*filament+0.53*mist)*pow(1.-h,1.19)*wave;
-        alpha*=(.36+.64*sideView)*power*visibility;
+        float flow=h*29.-time*5.+seed;
+        float roll=sin(flow*.75)+.42*sin(flow*1.53+4.*x);
+        float displaced=x-roll*.19*h;
+        float filament=exp(-abs(displaced)*9.)*exp(-h*6.1);
+        float mist=exp(-displaced*displaced*4.5)*(1.-smoothstep(.56,1.,abs(x)));
+        float folds=.48+.52*pow(.5+.5*sin(flow*1.35+roll*1.8+4.*x),2.);
+        float alpha=(0.68*filament+0.68*mist*folds)*pow(1.-h,1.25);
+        alpha*=smoothstep(0.006,0.16,h)*(.36+.64*sideView)*power*visibility;
         vec3 color=mix(vec3(0.30,0.70,1.),vec3(0.28,0.18,0.93),smoothstep(0.,0.55,h));
         gl_FragColor=vec4(color,alpha);
         #include <colorspace_fragment>

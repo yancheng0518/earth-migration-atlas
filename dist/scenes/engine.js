@@ -33,38 +33,66 @@ function seededRandom(seed) {
   };
 }
 
-function hullFinish(random) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 512;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#acafb0';
-  ctx.fillRect(0, 0, 512, 512);
-  for (let i = 0; i < 4600; i++) {
-    const white = random() > 0.52;
-    ctx.fillStyle = white ? 'rgba(231,239,240,.13)' : 'rgba(32,39,44,.09)';
-    const breadth = random() < 0.96 ? 1 : 4;
-    ctx.fillRect(random() * 512, random() * 512, breadth, 2 + random() ** 3 * 100);
+function hullFinish() {
+  const size = 512;
+  const random = seededRandom(35149);
+  function plate() {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    return { canvas, ctx, image: ctx.createImageData(size, size) };
   }
-  for (let row = 0; row < 4; row++) {
-    for (let col = -1; col < 8; col++) {
-      const x = col * 64 + (row % 2) * 32;
-      const y = row * 128;
-      ctx.fillStyle = 'rgba(25,31,37,.55)';
-      ctx.fillRect(x, y, 1.5, 128);
-      ctx.fillRect(x, y, 64, 1.5);
-      ctx.fillStyle = 'rgba(240,242,236,.5)';
-      ctx.fillRect(x + 1.5, y + 1.5, 1, 126);
-      for (let z = 5; z < 128; z += 14) ctx.fillRect(x + 4, y + z, 1.5, 1.5);
+  const pigment = plate(), relief = plate(), wear = plate();
+  const drips = Array.from({ length: size }, () => random() ** 8);
+  const oxidation = new Float32Array(64);
+  for (let i = 0; i < oxidation.length; i++) oxidation[i] = random();
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      // Lapped panels, water paths, rough heat staining and tiny pits are
+      // independent channels so an oxidized patch does not turn into a dent.
+      const row = y >> 6;
+      const column = ((x + (row % 2) * 32) & 511) >> 6;
+      const seamX = (x + (row % 2) * 32) & 63;
+      const seamY = y & 63;
+      const edge = seamX < 2 || seamY < 2;
+      const overlap = seamX === 2 || seamY === 2;
+      const grain = random();
+      const runoff = drips[x] * Math.exp(-seamY / 33);
+      const patch = oxidation[row * 8 + column];
+      const oxide = runoff * (.52 + .48 * patch) + Math.max(0, patch - .78) * 1.3;
+      const pit = grain > .984 ? 12 : 0;
+      const n = 4 * (y * size + x);
+      const value = 191 + 32 * patch + (grain - .5) * 21 - 60 * oxide - 39 * edge + 21 * overlap - pit;
+      pigment.image.data.set([value + oxide * 8, value - oxide * 6, value - oxide * 16, 255], n);
+      const height = 147 + (grain - .5) * 11 - 40 * edge + 18 * overlap - pit * 1.4;
+      relief.image.data.set([height, height, height, 255], n);
+      const roughness = 180 + 39 * oxide + 14 * (grain - .5) + 10 * edge - 37 * overlap;
+      wear.image.data.set([roughness, roughness, roughness, 255], n);
     }
   }
-  const map = new THREE.CanvasTexture(canvas);
-  map.wrapS = THREE.RepeatWrapping;
-  map.wrapT = THREE.RepeatWrapping;
-  map.repeat.set(4, 1);
+  function texture(layer) {
+    layer.ctx.putImageData(layer.image, 0, 0);
+    const map = new THREE.CanvasTexture(layer.canvas);
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(2, 1.5);
+    map.anisotropy = 4;
+    return map;
+  }
+  const map = texture(pigment);
   map.colorSpace = THREE.SRGBColorSpace;
-  map.anisotropy = 4;
-  return map;
+  return { map, bumpMap: texture(relief), roughnessMap: texture(wear) };
+}
+
+function beveledPanel() {
+  const outline = new THREE.Shape();
+  outline.moveTo(-.5, -.4);
+  for (const [x, y] of [[-.4,-.5],[.4,-.5],[.5,-.4],[.5,.4],[.4,.5],[-.4,.5],[-.5,.4]])
+    outline.lineTo(x, y);
+  outline.closePath();
+  const geometry = new THREE.ExtrudeGeometry(outline, {
+    depth: .7, bevelEnabled: true, bevelSize: .065, bevelThickness: .15, bevelSegments: 1, curveSegments: 1,
+  });
+  return geometry.translate(0, 0, -.35);
 }
 
 // Group all fixed machine parts of one shape and finish into an instanced draw.
@@ -104,6 +132,12 @@ function fabricator(group, shared) {
       rotation.setFromEuler(euler.set(0, angle, 0));
       scale.set(w, h, d);
       add('box', () => new THREE.BoxGeometry(), material, tint);
+    },
+    panel(x, y, z, w, h, d, material, angle, tilt = 0, tint) {
+      position.set(x, y, z);
+      rotation.setFromEuler(euler.set(tilt, angle, 0, 'YXZ'));
+      scale.set(w, h, d);
+      add('panel', beveledPanel, material, tint);
     },
     shell(x, y, z, top, bottom, height, material, sides = 48, tint) {
       const ratio = Math.round((top / bottom) * 1000) / 1000;
@@ -466,24 +500,35 @@ function makePlumes(group, vents, uniforms, shared) {
       'attribute vec3 vent,axis;attribute float delay;varying vec2 t;varying float phase,power;uniform float time,ignition;uniform vec3 localEye;',
       'void main(){t=uv;phase=vent.z;vec3 base=position;power=smoothstep(delay,delay+.33,ignition);',
       'vec3 right=normalize(cross(axis,localEye-base)+vec3(.000001,0.,.000001));',
-      'float h=uv.y;float spread=1.+1.8*h+.08*sin(h*18.-time*2.+phase)*h;',
+      'float h=uv.y;float spread=1.+1.45*h+(.24*sin(h*18.-time*2.+phase)+.19*sin(h*36.-time*3.8))*h;',
       'vec3 p=base+axis*(h*vent.y*mix(.012,1.,pow(power,.63)));',
-      'p+=right*((uv.x-.5)*2.*vent.x*spread*mix(.30,1.,power)+.16*h*h*sin(phase+time*.32));',
+      'float curl=vent.x*h*h*(.53*sin(h*9.-time*.72+phase)+.25*sin(h*19.-time*2.+phase));',
+      'p+=right*((uv.x-.5)*2.*vent.x*spread*mix(.30,1.,power)+curl);',
       'gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);}',
     ].join('\n'),
     fragmentShader: [
       'uniform float time;varying vec2 t;varying float phase,power;',
       noiseGLSL,
-      'void main(){float x=(t.x-.5)*2.,h=t.y;float fade=pow(max(1.-h,0.),1.4);',
-      'float outer=exp(-x*x*5.3)*(1.-smoothstep(.42,1.,abs(x)));',
-      'float core=exp(-x*x*(16.+16.*h));',
-      'float wave=noise21(vec2(x*5.+phase,h*17.-time*1.7));',
-      'float streak=pow(.5+.5*cos(x*37.+3.7*wave+2.*sin(h*12.-time*.83+phase)),3.);',
-      'float pulse=.89+.11*sin(h*25.-time*2.4+phase);',
-      'vec3 color=(vec3(.13,.15,1.0)*outer*(.30+.44*wave)+vec3(.17,.49,1.28)*core*(.48+.48*streak))*fade*pulse;',
-      'float cell=sin(h*105.-time*.72+phase*.22);float shock=exp(-pow((abs(x)-(.17+.09*cell))*13.,2.))*exp(-h*14.);',
-      'color+=vec3(.38,.63,.99)*shock+vec3(.88,1.16,1.73)*exp(-x*x*32.)*exp(-h*7.)*(.8+streak*.3);',
-      'gl_FragColor=vec4(color*power,1.);',
+      'void main(){',
+      '  float x=(t.x-.5)*2., h=t.y;',
+      '  float shear=noise21(vec2(x*3.+phase,h*9.-time*2.9));',
+      '  float roll=sin(h*18.-time*4.+phase)+.44*sin(h*32.-time*4.9);',
+      '  float center=(shear-.5)*(.14+.68*h)+roll*h*.13;',
+      '  float radius=max(.095,(.30+.31*h)*(.68+.70*shear));',
+      '  float r=(x-center)/radius;',
+      '  float flow=noise21(vec2(r*4.1+phase+shear*2.,h*27.-time*6.1));',
+      '  float folds=noise21(vec2(r*9.+phase+flow*2.1,h*49.-time*8.7));',
+      '  float volume=exp(-r*r*1.4)*(1.-smoothstep(.74,1.,abs(x)));',
+      '  float fade=1.-smoothstep(.47+.14*shear,.995,h);',
+      '  float wisps=volume*fade*smoothstep(.18,.92,flow*.61+folds*.39);',
+      '  float core=exp(-r*r*3.1-h*6.3)*(.5+.5*flow);',
+      '  float throat=exp(-r*r*6.-h*30.);',
+      '  float cell=.58+.42*cos(h*153.-time*1.4+flow*3.1);',
+      '  float diamonds=core*pow(cell,3.)*exp(-h*12.);',
+      '  vec3 glow=mix(vec3(.095,.22,.78),vec3(.35,.62,1.48),shear);',
+      '  vec3 color=glow*wisps*.88+vec3(.48,1.05,2.21)*core*.8;',
+      '  color+=vec3(2.3,2.55,2.4)*throat+vec3(.53,.61,1.04)*diamonds;',
+      '  gl_FragColor=vec4(color*power,1.);',
       '#include <tonemapping_fragment>',
       '#include <colorspace_fragment>',
       '}',
@@ -875,29 +920,28 @@ export function createEngine({ shared = false } = {}) {
   const uniforms = { proximity: { value: shared ? 0 : 1 }, ignition: { value: 1 }, weatherTime: { value: 0 } };
   const sky = atmosphere(group, uniforms, shared);
   const terrain = landscape(group, random, ground, uniforms, shared);
-  const finish = hullFinish(random);
-  const metal = (color, roughness = 0.66, metalness = 0.42, map = null) =>
+  const finish = hullFinish();
+  const metal = (color, roughness = 0.66, metalness = 0.42, texture = null) =>
     applyHaze(
       new THREE.MeshStandardMaterial({
         color,
         roughness,
         metalness,
-        map,
-        bumpMap: map,
-        bumpScale: shared ? 0.000043 : 0.019,
+        ...texture,
+        bumpScale: shared ? 0.00016 : 0.07,
       }),
       uniforms,
     );
-  const charcoal = metal('#354758', 0.72, 0.45, finish),
-    gunmetal = metal('#526174', 0.62, 0.43, finish);
-  const pale = metal('#89939b', 0.75, 0.27, finish),
-    trim = metal('#708393', 0.53, 0.52);
-  const steel = metal('#4c5d70'),
-    dark = metal('#18232e'),
-    oxidized = metal('#875c37', 0.78, 0.28);
-  const slate = metal('#55616b', 0.91, 0.2, finish);
-  const amber = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.55, 0.55, 0.115) });
-  const white = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.84, 1.12, 1.42) });
+  const charcoal = metal('#4b4a47', 0.94, 0.55, finish),
+    gunmetal = metal('#676866', 0.78, 0.66, finish);
+  const pale = metal('#96938a', 0.91, 0.44, finish),
+    trim = metal('#7a7b75', 0.57, 0.72);
+  const steel = metal('#646767', 0.64, 0.68),
+    dark = metal('#282727', 0.88, 0.42),
+    oxidized = metal('#735538', 0.73, 0.65, finish);
+  const slate = metal('#61615d', 1, 0.22, finish);
+  const amber = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.14, 0.42, 0.105) });
+  const white = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.65, 0.8, 0.93) });
   const arc = nozzleMaterial(new THREE.Color(0.24, 1.52, 3), uniforms);
   const core = nozzleMaterial(new THREE.Color(0.84, 1.12, 1.42), uniforms);
   const batch = fabricator(group, shared);
@@ -913,6 +957,8 @@ export function createEngine({ shared = false } = {}) {
       const p = at(r, h, a);
       batch.box(...p, w * s, height * s, d * s, m, a);
     };
+    const plate = (r, h, a, w, height, d, m, tilt = 0, tint) =>
+      batch.panel(...at(r, h, a), w * s, height * s, d * s, m, a, tilt, tint);
     const strut = (r1, h1, a1, r2, h2, a2, r, m) => batch.spar(at(r1, h1, a1), at(r2, h2, a2), r * s, m);
     const bead = (r, h, a, color, size) => glow(...at(r, h, a), color, size * s);
     shell(0.6, 12.5, 13, 1.3, slate);
@@ -939,14 +985,25 @@ export function createEngine({ shared = false } = {}) {
       [27.7, 6.37],
       [28.8, 6.94],
     ]) {
-      shell(height, rad, rad, 0.28, steel);
+      shell(height - .13, rad + .045, rad + .045, 0.073, dark);
+      shell(height, rad, rad, 0.22, steel);
     }
     const sections = lod === 2 ? 8 : 16;
     batch.detail(2);
     for (let j = 0; j < sections; j++) {
       const a = (j * TAU) / sections,
         next = a + TAU / sections;
-      strut(10.6, 1.8, a, 6.9, 10.8, a, 0.56, steel);
+      // Main load ribs are deep webs with raised flanges and foot pads.
+      if (lod < 2) {
+        const rake = -Math.atan2(3.7, 9);
+        plate(8.76, 6.3, a, .90, 9.75, .58, steel, rake);
+        for (const side of [-1, 1]) {
+          const angle = a + side * .046;
+          plate(8.93, 6.34, angle, .23, 9.5, .32, trim, rake);
+          plate(10.66, 1.86, angle, .53, .75, .82, gunmetal, rake);
+        }
+        plate(10.73, 1.48, a, 1.42, .44, 1.72, charcoal, .21);
+      } else strut(10.6, 1.8, a, 6.9, 10.8, a, 0.36, steel);
       strut(6.5, 11.5, a, 5.5, 18.4, a, 0.29, trim);
       strut(4.9, 20.7, a, 4.7, 25.0, a, 0.22, trim);
       strut(4.75, 25.1, a, 6.38, 28.4, a, 0.27, steel);
@@ -957,19 +1014,43 @@ export function createEngine({ shared = false } = {}) {
         strut(11.85, 1.0, a, 7.0, 10.7, a + 0.1, 0.17, trim);
         strut(7.1, 10.35, a, 6.4, 12, next, 0.13, steel);
         strut(5.0, 20.8, a, 4.72, 24.8, next, 0.105, steel);
-        cuboid(6.12, 13.6, a, 1.3, 2.1, 0.36, gunmetal);
-        for (let z = 0; z < 4; z++) cuboid(6.36, 12.85 + z * 0.36, a, 1.2, 0.12, 0.26, steel);
+        plate(6.12, 13.64, a, 1.46, 2.28, .33, charcoal);
+        plate(6.3, 13.64, a, 1.30, 2.05, .12, dark);
+        for (let z = 0; z < 6; z++) plate(6.37, 12.86 + z * .30, a, 1.25, .13, .16, steel, -.36);
+        // Segmented crown tiles overlap the load shell and catch the low sun.
+        plate(6.51, 28.05, a, 1.61, 1.92, .31, pale, .48, j % 5 === 2 ? '#c7ae8c' : '#e0e2dd');
+        plate(6.76, 28.74, a, 1.59, .28, .52, steel, .28);
         if (lod === 0) {
-          cuboid(8.67, 5.0, a + 0.12, 1.54, 2.8, 0.32, gunmetal);
-          for (let panel = 0; panel < 3; panel++) {
-            cuboid(8.89, 4.45 + panel * 0.48, a + 0.12, 1.2, 0.15, 0.05, dark);
-            cuboid(8.93, 4.45 + panel * 0.48, a + 0.16, 0.27, 0.075, 0.04, amber);
+          const serviceAngle = a + .125;
+          plate(8.65, 5.2, serviceAngle, 1.56, 2.46, .46, gunmetal, -.29);
+          plate(8.94, 5.19, serviceAngle, 1.33, 1.43, .16, dark, -.29);
+          for (let vane = 0; vane < 6; vane++) {
+            const y = 4.65 + vane * .2;
+            plate(8.99 - vane * .055, y, serviceAngle, 1.26, .087, .156, trim, -.29);
+          }
+          for (const side of [-1, 1]) {
+            const angle = serviceAngle + side * .078;
+            const foot = at(9.04, 4.07, angle);
+            const head = at(8.45, 6.25, angle);
+            batch.panel(...foot, .12 * s, .13 * s, .095 * s, pale, angle);
+            batch.panel(...head, .12 * s, .13 * s, .095 * s, pale, angle);
+            plate(5.83, 17.57, a + side * .105, .14, .32, .19, pale);
           }
           strut(9.1, 3.6, a + 0.044, 8.03, 7.7, a + 0.044, 0.13, oxidized);
           strut(9.1, 3.6, a + 0.081, 8.03, 7.7, a + 0.081, 0.13, trim);
-          strut(7.39, 8.91, a, 7.39, 8.91, next, 0.053, trim);
-          strut(7.39, 8.91, a, 7.39, 9.51, a, 0.045, steel);
-          strut(7.39, 9.51, a, 7.39, 9.51, next, 0.049, trim);
+          for (const [deck, radius] of [[8.89, 7.53], [11.90, 6.61], [17.59, 6.17]]) {
+            const mid = (a + next) * .5;
+            // Two rails with subdivided posts establish human scale on each deck.
+            for (const h of [deck + .36, deck + .65]) {
+              strut(radius, h, a, radius, h, mid, .039, trim);
+              strut(radius, h, mid, radius, h, next, .039, trim);
+            }
+            for (const angle of [a, mid]) {
+              strut(radius, deck, angle, radius, deck + .65, angle, .035, steel);
+              plate(radius - .11, deck - .04, angle, .16, .28, .34, dark);
+            }
+            strut(radius - .16, deck - .05, mid, radius - .97, deck - .52, mid, .069, dark);
+          }
         }
       }
       if (j % 2 === 0) bead(6.8, 29.0, a, '#a9dfff', 0.57);
@@ -984,7 +1065,7 @@ export function createEngine({ shared = false } = {}) {
         for (let b = 0; b < 5; b++) cuboid(10.96, 1.05 + b * 0.77, a, 1.79, 0.16, 0.26, trim);
         for (const offset of [-0.076, 0.076]) {
           strut(11.25, 0.65, a + offset, 7.05, 8.8, a + offset, 0.23, oxidized);
-          strut(4.75, 20.8, a + offset, 4.5, 24.7, a + offset, 0.09, amber);
+          strut(4.75, 20.8, a + offset, 4.5, 24.7, a + offset, 0.09, oxidized);
         }
       }
     }
@@ -1199,15 +1280,15 @@ export function createEngine({ shared = false } = {}) {
   const mist = exhaustMist(group, vents, uniforms, shared);
   const steam = coolingVents(group, uniforms, shared);
   makeLights(group, lights, shared);
-  const ambient = new THREE.HemisphereLight(0xbedaff, 0x85756d, 1.03);
+  const ambient = new THREE.HemisphereLight(0xe0e7ef, 0x79716b, .92);
   const localLights = new THREE.Group();
   localLights.name = 'Ground proximity lighting';
   group.add(localLights);
   localLights.add(ambient);
-  const sun = new THREE.DirectionalLight(0xffc88f, 2.35);
+  const sun = new THREE.DirectionalLight(0xffd6ad, 2.35);
   sun.position.set(-60, 31, -40);
   localLights.add(sun, sun.target);
-  const key = new THREE.DirectionalLight(0xaacaff, 1.18);
+  const key = new THREE.DirectionalLight(0xdceaff, 1.18);
   key.position.set(52, 47, 40);
   localLights.add(key, key.target);
   const exhaustLight = new THREE.PointLight(0x6699ff, 300, 35, 2);
@@ -1272,9 +1353,9 @@ export function createEngine({ shared = false } = {}) {
     lightMix = shared ? 0 : 1,
     elapsedNow = 0;
   function syncLighting() {
-    ambient.intensity = lightMix * (0.62 + power * 0.36);
-    sun.intensity = lightMix * 2.28;
-    key.intensity = lightMix * (0.69 + power * 0.45);
+    ambient.intensity = lightMix * (0.62 + power * 0.28);
+    sun.intensity = lightMix * 3.12;
+    key.intensity = lightMix * (0.61 + power * 0.28);
     const scale = shared ? group.getWorldScale(sceneScale).x : 1;
     exhaustLight.distance = 43 * scale;
     exhaustLight.intensity = lightMix * scale * scale * power * (510 + Math.sin(elapsedNow * 2.9) * 18);

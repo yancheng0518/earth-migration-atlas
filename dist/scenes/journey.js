@@ -450,9 +450,8 @@ export function createJupiter() {
   );
 }
 
-// Individual plumes start at separate nozzles, then broaden into a long wake.
-// Each strand is a ribbon that faces the lens along the thrust axis. Its near
-// end stays attached when the shared Earth is substituted into the shot.
+// The nozzle plumes stay attached to the Earth. They spread into overlapping
+// sheets of turbulent exhaust, with thin, brighter filaments inside the flow.
 function propulsionWake() {
   const positions = [],
     origins = [],
@@ -462,18 +461,17 @@ function propulsionWake() {
     length = { value: 8 },
     rPlanet = { value: 0.9 },
     time = { value: 0 };
-  const count = 53,
-    slices = 27;
+  const nozzles = 35, count = nozzles + 13, slices = 42;
   for (let i = 0; i < count; i++) {
-    const broad = i >= 46;
+    const broad = i >= nozzles;
     const a = i * 2.399963,
-      r = Math.sqrt(((i % 46) + 0.5) / 46) * (broad ? 0.64 : 0.87);
+      r = Math.sqrt(((i % nozzles) + 0.5) / nozzles) * (broad ? 0.70 : 0.87);
     const x = r * Math.cos(a),
       z = r * Math.sin(a),
       seed = random() * 16;
-    const width = broad ? 0.34 + random() * 0.28 : 0.016 + random() * 0.022;
-    const strength = broad ? 0.058 : 0.38 + random() * 0.22;
-    const extent = broad ? 0.83 + random() * 0.17 : 0.57 + random() * 0.43;
+    const width = broad ? 0.19 + random() * 0.30 : 0.027 + random() * 0.033;
+    const strength = broad ? 0.025 + random() * 0.032 : 0.23 + random() * 0.18;
+    const extent = broad ? 0.68 + random() * 0.32 : 0.36 + random() * 0.55;
     const first = positions.length / 3;
     for (let iStep = 0; iStep <= slices; iStep++) {
       for (const side of [-1, 1]) {
@@ -506,29 +504,59 @@ function propulsionWake() {
         float s=position.x, u=position.y;
         vec3 center=vec3(origin.x,-sqrt(1.-dot(origin.xy,origin.xy)),origin.y)*rPlanet;
         center.y-=u*wakeLength*origin.w;
-        float opening=u*u;
-        center.xz+=origin.xy*rPlanet*(.11*u+.85*opening);
-        center.xz+=vec2(sin(u*7.-time*.39+origin.z),cos(u*4.-time*.32+origin.z))*
-                   (.045*u+.08*opening)*rPlanet;
+        float opening=pow(u,1.35);
+        float flow=u*16.-time*3.8;
+        center.xz+=origin.xy*rPlanet*(.11*u+1.4*opening);
+        vec2 eddy=vec2(sin(flow+origin.z),cos(flow*.83+origin.z*.76));
+        eddy+=.28*vec2(cos(flow*2.5-origin.z),sin(flow*2.9+origin.z));
+        center.xz+=eddy*(.024*u+mix(.26,.72,profile.z)*opening)*rPlanet;
         vec3 c=(modelMatrix*vec4(center,1.)).xyz;
         vec3 direction=normalize(mat3(modelMatrix)*vec3(0.,-1.,0.));
         vec3 eye=normalize(cameraPosition-c);
-        vec3 widthAxis=normalize(cross(direction,eye)+vec3(.00001,0.,0.));
-        float w=rPlanet*(profile.x*(1.+u*1.9)+mix(.19,.64,profile.z)*opening);
+        vec3 widthAxis=cross(direction,eye);
+        if (dot(widthAxis,widthAxis)<1.e-7) widthAxis=cross(direction,vec3(1.,.2,.07));
+        widthAxis=normalize(widthAxis);
+        float roll=.60*sin(flow*.67+origin.z)*opening;
+        widthAxis=normalize(widthAxis*cos(roll)+cross(direction,widthAxis)*sin(roll));
+        float w=rPlanet*(profile.x*(.65+u*.55)+mix(.40,.96,profile.z)*opening);
+        w*=1.+.26*sin(flow*1.25+origin.z)*smoothstep(.05,.57,u);
         c+=s*widthAxis*w*length(modelMatrix[0].xyz);
         gl_Position=projectionMatrix*viewMatrix*vec4(c,1.);
         sampleAt=vec4(s,u,origin.z,profile.y); broad=profile.z;
       }`,
     fragmentShader: `
       varying vec4 sampleAt; varying float broad;uniform float time,wakePower;
+
+      float hash(vec2 p){
+        vec3 q=fract(vec3(p.xyx)*.1031);
+        q+=dot(q,q.yzx+33.33);
+        return fract((q.x+q.y)*q.z);
+      }
+      float noise(vec2 p){
+        vec2 cell=floor(p), f=fract(p);
+        f=f*f*(3.-2.*f);
+        return mix(mix(hash(cell),hash(cell+vec2(1.,0.)),f.x),
+          mix(hash(cell+vec2(0.,1.)),hash(cell+1.),f.x),f.y);
+      }
       void main(){
         float s=sampleAt.x,u=sampleAt.y;
-        float shape=exp(-s*s*3.4)*(1.-smoothstep(.72,1.,abs(s)));
-        float pulse=.84+.11*sin(u*29.-time*2.1+sampleAt.z)+.05*sin(u*88.-time*3.1);
-        float falloff=pow(1.-u,mix(1.25,.95,broad));
-        vec3 tint=mix(vec3(.64,.89,1.),vec3(.18,.35,1.),smoothstep(.005,.30,u));
-        tint=mix(tint,vec3(.12,.13,.68),smoothstep(.28,.95,u));
-        gl_FragColor=vec4(tint,shape*falloff*pulse*sampleAt.w*wakePower);
+        float travel=u*25.-time*6.8+sampleAt.z;
+        float roll=noise(vec2(s*2.3+sampleAt.z,travel*.68));
+        float fine=noise(vec2(s*7.9-roll*1.4,travel*1.85));
+        float tangle=noise(vec2(s*3.1+fine,travel*.94+12.));
+        float ragged=s+(roll-.5)*.56*smoothstep(.015,.44,u);
+        float gas=exp(-ragged*ragged*3.1)*smoothstep(.05,.83,.55*roll+.29*fine+.36*tangle);
+        gas*=1.-smoothstep(.62,.995,abs(s));
+        float rib=sin(travel*1.9+s*5.7+roll*9.);
+        gas*=.59+.53*pow(.5+.5*rib,2.);
+        float throat=exp(-ragged*ragged*14.)*exp(-u*13.)*(1.-broad);
+        float falloff=pow(1.-u,mix(1.37,.84,broad))*(1.-smoothstep(.77,1.,u));
+        vec3 hot=vec3(.53,1.23,2.95);
+        vec3 cold=mix(vec3(.065,.37,1.18),vec3(.35,.076,.73),tangle);
+        vec3 rim=vec3(.92,.18,.054)*smoothstep(.56,.94,fine)*smoothstep(.16,.72,abs(s));
+        vec3 tint=mix(cold,hot,exp(-u*4.5)*(.28+.57*fine))+rim;
+        vec3 emission=(tint*gas*falloff+hot*throat*.57)*sampleAt.w*wakePower;
+        gl_FragColor=vec4(emission,1.);
         #include <colorspace_fragment>
       }`,
   });
