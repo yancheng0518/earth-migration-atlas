@@ -13,7 +13,7 @@ const earthFacilities = ['engine', 'elevator', 'station'];
 const topbar = document.querySelector('.topbar');
 const deck = document.querySelector('.deck');
 const coarsePointer = matchMedia('(pointer: coarse)');
-const soundtrack = createSoundtrack(startWithSound);
+const soundtrack = createSoundtrack($('sound'), $('stream-status'));
 const startTimes = chapters.map((_, i) => chapters.slice(0, i).reduce((n, c) => n + c.length, 0));
 const total = startTimes.at(-1) + chapters.at(-1).length;
 const clock = { seconds: 0 },
@@ -367,6 +367,13 @@ async function startWithSound() {
   leaveStartGate();
   enterFilm();
 }
+function startFilm() {
+  if (!ready || startingWithSound) return;
+  if (soundtrack.mutedByUser) {
+    leaveStartGate();
+    enterFilm();
+  } else startWithSound();
+}
 function seek(s) {
   if (!ready || awaitingStart()) return;
   if (done) {
@@ -380,8 +387,7 @@ function seek(s) {
 }
 function toggleFilm() {
   if (mode !== 'film' || !ready) return;
-  if (awaitingStart()) return startWithSound();
-  soundtrack.allowRetry();
+  if (awaitingStart()) return startFilm();
   if (done) return enterFilm(true);
   timeline.paused(!timeline.paused());
   playButton();
@@ -592,6 +598,7 @@ for (const button of destinations) {
   });
 }
 $('film-toggle').onclick = toggleFilm;
+$('score-unlock').onclick = startFilm;
 $('start-silent').onclick = () => {
   soundtrack.mute();
   leaveStartGate();
@@ -601,7 +608,7 @@ $('film-progress').addEventListener('input', (e) => seek((Number(e.target.value)
 jumpButtons.forEach((b, i) => (b.onclick = () => seek(startTimes[i])));
 $('mode-film').onclick = () => {
   if (mode === 'film' && !done) return;
-  if (awaitingStart()) startWithSound();
+  if (awaitingStart()) startFilm();
   else enterFilm();
 };
 $('mode-explore').onclick = () => {
@@ -632,7 +639,6 @@ document.addEventListener('fullscreenchange', () => {
 window.addEventListener('keydown', (e) => {
   if (!ready || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
   if (e.key === 'Escape') {
-    if (soundtrack.close()) return;
     if (!$('info-panel').hidden) closeInfo();
     else if (done) choose('earth');
     else if (mode === 'film' && !player.inert) hideControls(true);
@@ -643,7 +649,6 @@ window.addEventListener('keydown', (e) => {
     (document.activeElement === $('replay') ? $('end-explore') : $('replay')).focus();
     return;
   }
-  if (e.target.closest('#music-panel')) return;
   if (e.key.toLowerCase() === 'e' && mode === 'film' && !done && !e.target.matches('input')) {
     choose('earth');
     $('mode-film').focus({ preventScroll: true });
